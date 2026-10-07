@@ -13,7 +13,25 @@ import {
   faktorenFuerHeizung,
   berechnePrimaerenergieAusEndenergie,
   berechneCo2AusEndenergie,
+  berechneFoerderung,
+  summiereMassnahmen,
+  bestimmeWpVariante,
+  erstelleEffektivenBauteilState,
+  erstelleEffektivePakete,
+  erstelleBasisPakete,
+  ordneAbgleichNachWp,
+  erstelleStartzustand,
+  bauteileAlsState,
+  berechneWirtschaftlichkeit,
+  berechneHeizungWartung,
+  preisFuerHeizung,
+  traegerFuerHeizung,
+  STROMPREIS_HAUSHALT,
+  WP_VARIANTEN,
+  OPTIONS_HEIZUNG,
+  berechneSzenario,
 } from "./data.js";
+import { KOSTENANSAETZE, kostenAnsatzFuer, kostenStatusText } from "./kosten.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -25,17 +43,10 @@ function buildGebaeudeWithState(preset) {
   return { gebaeude: { ...gebaeude, bauteile_state }, ist };
 }
 
-function withAppHeatPumpPath(gebaeude) {
-  return {
-    ...gebaeude,
-    bauteile_state: {
-      ...gebaeude.bauteile_state,
-      wpVariante: "monoenergetisch",
-      verteilung: 7,
-      vorlauftemp: 35,
-    },
-  };
-}
+// Same derivation chain as App.jsx (see berechneSzenario in data.js).
+const appPfad = (presetId, aktiveMassnahmen, opts = {}) => berechneSzenario({ presetId, aktiveMassnahmen, ...opts });
+
+const ALL_IDS = MASSNAHMENPAKETE.flatMap(p => p.massnahmen.map(m => m.id));
 
 // ─── ableiteBauteile ──────────────────────────────────────────────────────
 
@@ -177,27 +188,29 @@ describe("bewerteMassnahmen", () => {
 
 // ─── berechneNachMassnahmen ───────────────────────────────────────────────
 
-describe("berechneNachMassnahmen (efhNachkrieg, all measures)", () => {
-  const built = buildGebaeudeWithState(PRESETS.efhNachkrieg);
-  const ist = built.ist;
-  const gebaeude = withAppHeatPumpPath(built.gebaeude);
-  const allIds = MASSNAHMENPAKETE.flatMap(p => p.massnahmen.map(m => m.id));
-  const k = berechneNachMassnahmen(allIds, ist, gebaeude);
+describe("berechneNachMassnahmen (efhNachkrieg, all measures, app path)", () => {
+  const { k, wp } = appPfad("efhNachkrieg", ALL_IDS);
 
-  it("PE = 86 kWh/(m²·a)", () => {
+  it("auto WP variant resolves to monoenergetisch (oil building never auto-hybrid)", () => {
+    expect(wp.key).toBe("monoenergetisch");
+  });
+
+  it("PE = 62 kWh/(m²·a)", () => {
     expect(k.primaerenergie).toBe(62);
   });
 
-  it("EEK is C", () => {
+  it("CO₂ = 19 kg/(m²·a)", () => {
+    expect(Math.round(k.co2)).toBe(19);
+  });
+
+  it("EEK is B", () => {
     expect(k.effizienzklasse).toBe("B");
   });
 
-  it("Eigenanteil = 116.850 € (incl. Klimageschwindigkeitsbonus for Heizöl→WP)", () => {
-    expect(k.eigenanteil).toBe(116850);
-  });
-
-  it("invest_gesamt > foerderung_gesamt", () => {
-    expect(k.invest_gesamt).toBeGreaterThan(k.foerderung_gesamt);
+  it("Investition 139.800 € · Förderung 24.600 € · Eigenanteil 115.200 € (M4 at monoenergetisch price)", () => {
+    expect(k.invest_gesamt).toBe(139800);
+    expect(k.foerderung_gesamt).toBe(24600);
+    expect(k.eigenanteil).toBe(115200);
   });
 
   it("eigenanteil = invest_gesamt - foerderung_gesamt", () => {
@@ -205,16 +218,10 @@ describe("berechneNachMassnahmen (efhNachkrieg, all measures)", () => {
   });
 });
 
-// ─── berechneNachMassnahmen: efh70er ─────────────────────────────────────
+describe("berechneNachMassnahmen (efh70er, all measures, fenster=5 override, app path)", () => {
+  const { k } = appPfad("efh70er", ALL_IDS);
 
-describe("berechneNachMassnahmen (efh70er, all measures, fenster=5 override)", () => {
-  const built = buildGebaeudeWithState(PRESETS.efh70er);
-  const ist = built.ist;
-  const gebaeude = withAppHeatPumpPath(built.gebaeude);
-  const allIds = MASSNAHMENPAKETE.flatMap(p => p.massnahmen.map(m => m.id));
-  const k = berechneNachMassnahmen(allIds, ist, gebaeude);
-
-  it("PE = 65 kWh/(m²·a) — M3 saves little because fenster already at note 5", () => {
+  it("PE = 51 kWh/(m²·a) — M3 saves little because fenster already at note 5", () => {
     expect(k.primaerenergie).toBe(51);
   });
 
@@ -222,12 +229,226 @@ describe("berechneNachMassnahmen (efh70er, all measures, fenster=5 override)", (
     expect(k.effizienzklasse).toBe("B");
   });
 
-  it("Eigenanteil = 116.850 € (incl. Klimageschwindigkeitsbonus for Erdgas→WP)", () => {
-    expect(k.eigenanteil).toBe(116850);
+  it("Eigenanteil = 115.200 € (incl. Klimageschwindigkeitsbonus for Erdgas→WP)", () => {
+    expect(k.eigenanteil).toBe(115200);
+  });
+});
+
+describe("app path is consistent across entry points", () => {
+  it("raw MASSNAHMENPAKETE M4 equals the monovalent variant (base cost)", () => {
+    const m4 = MASSNAHMENPAKETE.flatMap(p => p.massnahmen).find(m => m.id === "M4");
+    expect(m4.investition).toBe(WP_VARIANTEN.monovalent.investition);
+    expect(m4.ohnehin_anteil).toBe(WP_VARIANTEN.monovalent.ohnehin_anteil);
   });
 
-  it("eigenanteil = invest_gesamt - foerderung_gesamt", () => {
-    expect(k.eigenanteil).toBe(k.invest_gesamt - k.foerderung_gesamt);
+  it("variant costs apply to M4, user overrides win over variant costs", () => {
+    const base = erstelleBasisPakete("hybrid").flatMap(p => p.massnahmen).find(m => m.id === "M4");
+    expect(base.investition).toBe(WP_VARIANTEN.hybrid.investition);
+    const { pakete } = appPfad("efhNachkrieg", ALL_IDS, { overrides: { M4: { investition: 20000 } } });
+    const m4 = pakete.flatMap(p => p.massnahmen).find(m => m.id === "M4");
+    expect(m4.investition).toBe(20000);
+    expect(m4.ohnehin_anteil).toBe(WP_VARIANTEN.monoenergetisch.ohnehin_anteil);
+  });
+
+  it("explicit variant choice changes M4 cost", () => {
+    const { k } = appPfad("efhNachkrieg", ALL_IDS, { wpWahl: "monovalent" });
+    expect(k.invest_gesamt).toBe(142800);
+  });
+
+  it("preset start state uses the same default selection as getDefaultAktiveMassnahmen", () => {
+    for (const id of Object.keys(PRESETS)) {
+      const start = erstelleStartzustand(id);
+      expect(start.aktiveMassnahmen).toEqual(getDefaultAktiveMassnahmen(start.gebaeude, bauteileAlsState(start.bauteile)));
+    }
+    expect(erstelleStartzustand("efhNachkrieg").aktiveMassnahmen.sort()).toEqual(["M1", "M2", "M3", "M4", "M5", "M6", "M7"]);
+  });
+
+  it("M1 moves behind the WP into P3 when M4 is active", () => {
+    const { pakete } = appPfad("efhNachkrieg", ALL_IDS);
+    expect(pakete.find(p => p.id === "P1")).toBeUndefined();
+    const p3 = pakete.find(p => p.id === "P3");
+    expect(p3.massnahmen.at(-1).id).toBe("M1");
+    expect(pakete.map(p => p.nummer)).toEqual(pakete.map((_, i) => i + 1));
+  });
+});
+
+describe("bestimmeWpVariante", () => {
+  const geb = { heizung_typ: "Erdgas Brennwert", waermeverteilung: "Heizkörper (Hochtemperatur, >60 °C)" };
+
+  it("high flow temperature + gas → hybrid", () => {
+    expect(bestimmeWpVariante({ gebaeude: geb, bauteile_state: { waende: 4, dach: 4, verteilung: 2 } }).key).toBe("hybrid");
+  });
+
+  it("floor heating (verteilung ≥ 6, e.g. after M7) uses 35 °C → monovalent with decent envelope", () => {
+    const r = bestimmeWpVariante({ gebaeude: geb, bauteile_state: { waende: 4, dach: 4, verteilung: 7 } });
+    expect(r.vorlauftemp).toBe(35);
+    expect(r.key).toBe("monovalent");
+  });
+
+  it("oil building never auto-selects hybrid", () => {
+    const r = bestimmeWpVariante({ gebaeude: { ...geb, heizung_typ: "Heizöl" }, bauteile_state: { waende: 2, dach: 2, verteilung: 2 } });
+    expect(r.key).toBe("monoenergetisch");
+  });
+
+  it("explicit choice overrides auto, invalid choice falls back to auto", () => {
+    expect(bestimmeWpVariante({ wahl: "hybrid", gebaeude: geb, bauteile_state: {} }).key).toBe("hybrid");
+    expect(bestimmeWpVariante({ wahl: "quatsch", gebaeude: geb, bauteile_state: { verteilung: 2 } }).key).toBe("hybrid");
+  });
+
+  it("M7 active → effective state has verteilung 7 and resolves with 35 °C", () => {
+    const { state, wp } = erstelleEffektivenBauteilState({
+      bauteile_state: { waende: 4, dach: 4, verteilung: 2 }, gebaeude: geb, aktiveMassnahmen: ["M7", "M4"],
+    });
+    expect(state.verteilung).toBe(7);
+    expect(wp.key).toBe("monovalent");
+    expect(state.wpVariante).toBe("monovalent");
+  });
+});
+
+describe("berechneFoerderung", () => {
+  const m = (over) => ({ id: "MX", investition: 10000, ohnehin_anteil: 2000, foerderquote: 0.15, ...over });
+
+  it("envelope measure: (invest − sowieso) × (15 % + 5 % iSFP)", () => {
+    const f = berechneFoerderung(m(), { heizung_typ: "Heizöl" });
+    expect(f.foerderfaehig).toBe(8000);
+    expect(f.quote).toBeCloseTo(0.20);
+    expect(f.betrag).toBeCloseTo(1600);
+  });
+
+  it("heat pump replacing oil/gas gets +10 % Klimabonus, capped at 50 %", () => {
+    const wp = m({ heizungstausch: true, foerderquote: 0.30 });
+    expect(berechneFoerderung(wp, { heizung_typ: "Heizöl" }).quote).toBeCloseTo(0.45);
+    expect(berechneFoerderung(wp, { heizung_typ: "Biomasse (Pellets)" }).quote).toBeCloseTo(0.35);
+    expect(berechneFoerderung(m({ heizungstausch: true, foerderquote: 0.45 }), { heizung_typ: "Erdgas Brennwert" }).quote).toBe(0.5);
+  });
+
+  it("no base quote → no subsidy, no bonus", () => {
+    expect(berechneFoerderung(m({ foerderquote: 0 })).betrag).toBe(0);
+    expect(berechneFoerderung(m({ foerderquote: undefined })).betrag).toBe(0);
+  });
+
+  it("sowieso share larger than invest never yields negative subsidy", () => {
+    expect(berechneFoerderung(m({ ohnehin_anteil: 20000 })).betrag).toBe(0);
+  });
+
+  it("summiereMassnahmen matches berechneNachMassnahmen totals", () => {
+    const { pakete, aktive, k, gebaeude } = appPfad("efhNachkrieg", ALL_IDS);
+    const aktiv = pakete.flatMap(p => p.massnahmen).filter(x => aktive.includes(x.id));
+    const sum = summiereMassnahmen(aktiv, gebaeude);
+    expect(Math.round(sum.invest)).toBe(k.invest_gesamt);
+    expect(Math.round(sum.foerderung)).toBe(k.foerderung_gesamt);
+  });
+});
+
+describe("non-energy measures (kategorie: modernisierung)", () => {
+  const bad = { id: "B1", kurztitel: "Bad", titel: "Badsanierung", kategorie: "modernisierung", rolle: "modernisierung",
+    investition: 20000, ohnehin_anteil: 0, foerderquote: 0 };
+  const paketeMitBad = [...MASSNAHMENPAKETE, { id: "PB", nummer: 9, titel: "Bad", farbe: "blau", massnahmen: [bad] }];
+  const { gebaeude, ist } = buildGebaeudeWithState(PRESETS.efhNachkrieg);
+
+  it("cost is reported separately and does not change energy, subsidy or Eigenanteil", () => {
+    const ohne = berechneNachMassnahmen(["M2"], ist, gebaeude, paketeMitBad);
+    const mit = berechneNachMassnahmen(["M2", "B1"], ist, gebaeude, paketeMitBad);
+    expect(mit.primaerenergie).toBe(ohne.primaerenergie);
+    expect(mit.eigenanteil).toBe(ohne.eigenanteil);
+    expect(mit.invest_gesamt).toBe(ohne.invest_gesamt);
+    expect(mit.modernisierung_invest).toBe(20000);
+    expect(mit.modernisierung_eigenanteil).toBe(20000);
+  });
+
+  it("only non-energy measures active → energy values stay at IST", () => {
+    const k = berechneNachMassnahmen(["B1"], ist, gebaeude, paketeMitBad);
+    expect(k.primaerenergie).toBe(ist.primaerenergie);
+    expect(k.co2).toBe(ist.co2);
+  });
+
+  it("no badge, no energy step, never pre-selected", () => {
+    const r = bewerteMassnahmen([bad], {}, gebaeude).find(x => x.id === "B1");
+    expect(r.empfohlen || r.nichtEmpfohlen).toBe(false);
+    expect(berechneKumuliert(["M2", "B1"], ist, gebaeude, paketeMitBad).map(s => s.paket.id)).toEqual(["P2"]);
+    expect(getDefaultAktiveMassnahmen(gebaeude, gebaeude.bauteile_state, paketeMitBad)).not.toContain("B1");
+  });
+});
+
+describe("heating-type classification (price, carrier label, maintenance)", () => {
+  it("every heating option maps to a price and label", () => {
+    for (const typ of OPTIONS_HEIZUNG) {
+      expect(preisFuerHeizung(typ)).toBeGreaterThan(0);
+      expect(traegerFuerHeizung(typ)).toBeTruthy();
+    }
+  });
+
+  it("Elektroheizung is priced as household electricity, not district heating", () => {
+    expect(preisFuerHeizung("Elektroheizung")).toBe(STROMPREIS_HAUSHALT);
+    expect(traegerFuerHeizung("Elektroheizung")).toMatch(/Strom/);
+    expect(faktorenFuerHeizung("Elektroheizung").primaerenergie).toBe(1.8);
+  });
+
+  it("IST maintenance depends on the heating type (oil 260 €, gas 180 €, district heating 40 €)", () => {
+    const w = (heizungTyp) => berechneHeizungWartung({ heizungTyp, hatWP: false, hatPV: false }).istJahr;
+    expect(w("Heizöl")).toBe(260);
+    expect(w("Erdgas Brennwert")).toBe(180);
+    expect(w("Fernwärme (Gas-KWK)")).toBe(40);
+    expect(w("Biomasse (Pellets)")).toBe(200);
+  });
+});
+
+describe("berechneWirtschaftlichkeit", () => {
+  const basis = { heizkostenIst: 3000, heizkostenZiel: 1000, wartungIst: 200, wartungZiel: 200, eigenanteil: 40000 };
+
+  it("static amortisation = Eigenanteil ÷ annual net saving", () => {
+    const w = berechneWirtschaftlichkeit(basis);
+    expect(w.jaehrlicheEinsparung).toBe(2000);
+    expect(w.amortisationStatisch).toBe(20);
+    expect(w.breakEvenJahre).toBeCloseTo(20, 5);
+    expect(w.ohneSanierung).toBe(64000);
+    expect(w.mitSanierung).toBe(64000);
+  });
+
+  it("price escalation on IST costs brings break-even forward", () => {
+    const w = berechneWirtschaftlichkeit({ ...basis, eskalationIst: 3, eskalationZiel: 2 });
+    expect(w.breakEvenJahre).toBeLessThan(20);
+    expect(w.kumZiel(w.breakEvenJahre)).toBeCloseTo(w.kumIst(w.breakEvenJahre), -2);
+  });
+
+  it("no saving → no amortisation, no break-even", () => {
+    const w = berechneWirtschaftlichkeit({ ...basis, heizkostenZiel: 3500 });
+    expect(w.amortisationStatisch).toBeNull();
+    expect(w.breakEvenJahre).toBeNull();
+  });
+});
+
+describe("cost registry (kosten.js)", () => {
+  it("every measure takes investition and Sowieso share from the registry", () => {
+    for (const m of MASSNAHMENPAKETE.flatMap(p => p.massnahmen)) {
+      const k = KOSTENANSAETZE[m.kostenansatz];
+      expect(k, m.id).toBeDefined();
+      expect(m.investition).toBe(k.wert);
+      expect(m.ohnehin_anteil).toBe(k.ohnehin);
+    }
+    for (const [key, v] of Object.entries(WP_VARIANTEN)) {
+      expect(v.investition).toBe(KOSTENANSAETZE[`WP_${key}`].wert);
+    }
+  });
+
+  it("every entry carries region, reference year, VAT status, unit and evidence level", () => {
+    for (const [id, k] of Object.entries(KOSTENANSAETZE)) {
+      expect(k.region, id).toBeTruthy();
+      expect(k.bezugsjahr, id).toBeGreaterThan(2000);
+      expect(["brutto", "netto"], id).toContain(k.mwst);
+      expect(k.einheit, id).toBeTruthy();
+      expect(["dokumentiert", "abgeleitet", "annahme"], id).toContain(k.evidenz);
+      expect(k.wert !== null || k.spanne !== null, id).toBe(true);
+      if (k.evidenz !== "annahme") expect(k.quellen.length, id).toBeGreaterThan(0);
+    }
+  });
+
+  it("missing regional value falls back to DE and is flagged", () => {
+    const k = kostenAnsatzFuer("M2", "BE");
+    expect(k.region).toBe("DE");
+    expect(k.fallback).toBe(true);
+    expect(kostenStatusText(k)).toMatch(/Fallback/);
+    expect(kostenAnsatzFuer("M2").fallback).toBe(false);
   });
 });
 
@@ -256,10 +477,10 @@ describe("berechneNachMassnahmen (no measures active)", () => {
 
 describe("energy carrier factors", () => {
   it("uses GEG defaults for oil and net electricity", () => {
-    expect(faktorenFuerHeizung("HeizÃ¶l").primaerenergie).toBe(1.1);
-    expect(faktorenFuerHeizung("HeizÃ¶l").co2KgProKwh).toBe(0.310);
-    expect(faktorenFuerHeizung("WÃ¤rmepumpe Luft/Wasser").primaerenergie).toBe(1.8);
-    expect(faktorenFuerHeizung("WÃ¤rmepumpe Luft/Wasser").co2KgProKwh).toBe(0.560);
+    expect(faktorenFuerHeizung("Heizöl").primaerenergie).toBe(1.1);
+    expect(faktorenFuerHeizung("Heizöl").co2KgProKwh).toBe(0.310);
+    expect(faktorenFuerHeizung("Wärmepumpe Luft/Wasser").primaerenergie).toBe(1.8);
+    expect(faktorenFuerHeizung("Wärmepumpe Luft/Wasser").co2KgProKwh).toBe(0.560);
   });
 
   it("calculates PE and CO2 from end energy and selected carrier", () => {
