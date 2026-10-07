@@ -1,23 +1,38 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
-  PRESETS, ableiteBauteile,
+  ableiteBauteile,
   OPTIONS_GEBAEUDETYP, OPTIONS_HEIZUNG, OPTIONS_DACH, OPTIONS_KELLER,
   OPTIONS_LUEFTUNG, OPTIONS_WARMWASSER, OPTIONS_ERNEUERBARE, OPTIONS_WAERMEVERTEILUNG,
   BAUTEIL_STUFEN,
-  MASSNAHMENPAKETE, BEG_BONUS,
   berechneNachMassnahmen, berechneKumuliert, berechneEffizienzklasse, berechneHeizkosten,
   preisFuerHeizung, traegerFuerHeizung,
-  bewerteMassnahmen, vorlauftemperaturFuer, wpTypEmpfehlung,
-  WP_VARIANTEN, wpTypVarianteKey, berechnePvErtrag,
-  berechneHeizungWartung,
-  massnahmeIstSchonVorhanden, getDefaultAktiveMassnahmen,
-  EFFIZIENZ_FARBEN, NOTE_FARBEN, PAKET_FARBEN,
+  bewerteMassnahmen, berechnePvErtrag, berechneHeizungWartung,
+  getDefaultAktiveMassnahmen, summiereMassnahmen,
+  bauteileAlsState, erstelleStartzustand, erstelleEffektivenBauteilState,
+  erstelleBasisPakete, erstelleEffektivePakete, ordneAbgleichNachWp, berechneWirtschaftlichkeit,
+  EFFIZIENZ_FARBEN,
 } from "./data.js";
+import { DATENSTAND } from "./kosten.js";
 import { extractFromPDF } from "./pdfExtract.js";
 import { exportAsPDF } from "./printExport.js";
-import { fmt, fmtEur, textColorFor, waermeEEK, EnergyBar } from "./helpers.jsx";
+import { fmt } from "./helpers.jsx";
 import ISFPPrintReport from "./components/ISFPPrintReport.jsx";
 import MassnahmenEditor from "./components/MassnahmenEditor.jsx";
+import PaketBlock from "./components/PaketBlock.jsx";
+import Hintergruende from "./components/Hintergruende.jsx";
+import {
+  HouseIcon, InfoIcon, SparkleIcon, PaketHaus, Tooltip, labelStyle,
+  NumberInput, TextInput, SelectInput, ComputedRow, Section, Card, CardEyebrow, eekTextFarbe,
+} from "./components/ui.jsx";
+import { PresetPicker, PdfReviewPanel, ExtractionResult, BauteilKachel } from "./components/Erfassung.jsx";
+import { VorherNachher, DeltaKPI, EekArrowScale, MergedTable } from "./components/Ergebnis.jsx";
+import { EnergieVerlaufChart, KostenvergleichChart } from "./components/Diagramme.jsx";
+import { ErgebnisUebersicht, MobileResultsDrawer } from "./components/ErgebnisUebersicht.jsx";
+
+// Felder, deren Änderung Bauteil-Noten bzw. die Maßnahmen-Vorauswahl neu ableitet
+const BAUTEILE_NEU_FELDER = ["baujahr", "heizung_typ", "lueftung", "warmwasser"];
+const MASSNAHMEN_NEU_FELDER = ["baujahr", "heizung_typ", "lueftung", "warmwasser", "waermeverteilung", "erneuerbare"];
+
 const SANIERUNGSSTAND_STUFEN = {
   unsaniert:  { waende: 2, dach: 2, boden: 2, fenster: 2 },
   teilsaniert:{ waende: 3, dach: 4, boden: 3, fenster: 4 },
@@ -62,58 +77,6 @@ const bauteilMitAktualisierterNote = (bauteil, note) => ({
   info: (BAUTEIL_STUFEN[bauteil.id] && BAUTEIL_STUFEN[bauteil.id][note]) || bauteil.info,
 });
 
-// ═══ ICONS ══════════════════════════════════════════════════════════════
-const HouseIcon = ({ size = 24, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 28 L4 14 L16 6 L28 14 L28 28 Z" />
-    <line x1="4" y1="28" x2="28" y2="28" strokeWidth="1.8" />
-    <rect x="8.5" y="17" width="3" height="3.2" />
-    <rect x="14.5" y="17" width="3" height="3.2" />
-    <rect x="20.5" y="17" width="3" height="3.2" />
-    <rect x="8.5" y="22.5" width="3" height="3.2" />
-    <rect x="14.5" y="22.5" width="3" height="3.2" />
-    <rect x="20.5" y="22.5" width="3" height="3.2" />
-  </svg>
-);
-
-const InfoIcon = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
-    <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.2" />
-    <circle cx="8" cy="5" r="0.9" fill="currentColor" />
-    <line x1="8" y1="7.5" x2="8" y2="11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-  </svg>
-);
-
-const UploadIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-    <polyline points="17 8 12 3 7 8"/>
-    <line x1="12" y1="3" x2="12" y2="15"/>
-  </svg>
-);
-
-const CheckIcon = ({ size = 14, color = "#00843D" }) => (
-  <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
-    <path d="M2 7.5 L5.5 11 L12 4" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
-
-const SparkleIcon = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M8 1.5 L9.5 6.5 L14.5 8 L9.5 9.5 L8 14.5 L6.5 9.5 L1.5 8 L6.5 6.5 Z" />
-  </svg>
-);
-
-const PaketHaus = ({ farbe, aktiv, nummer, size = 68 }) => {
-  const f = PAKET_FARBEN[farbe] || PAKET_FARBEN.rot;
-  return (
-    <svg width={size} height={size} viewBox="0 0 80 80" style={{ opacity: aktiv ? 1 : 0.28 }}>
-      <path d="M8 70 L8 36 L40 12 L72 36 L72 70 Z" fill={f.bg} stroke="#1E1A15" strokeWidth="1.5" strokeLinejoin="round"/>
-      <text x="40" y="55" textAnchor="middle" fontFamily="'Fraunces', serif" fontSize="26" fontWeight="500" fill={f.text}>{nummer}</text>
-    </svg>
-  );
-};
-
 // ═══ ERROR BOUNDARY ════════════════════════════════════════════════════
 export class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -136,1052 +99,6 @@ export class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
-
-// ═══ MOBILE RESULTS DRAWER ═════════════════════════════════════════════
-const MobileResultsDrawer = ({ effizienzklasse, k, ist, heizkosten, aktiveEmpfohleneMassnahmen, empfohleneMassnahmen, reportSummaryPackages, nichtEmpfohleneMassnahmen = [], scrollToTab = () => {}, effectiveBauteilState = {}, gebaeude = {}, aktiveMassnahmen = [], resolvedWpVariante = "monovalent", wirtschaftlichkeitOverrides = {} }) => {
-  const [open, setOpen] = useState(false);
-  const peReduction = ist.primaerenergie > 0 ? Math.round((1 - k.primaerenergie / ist.primaerenergie) * 100) : 0;
-  const zielColor = EFFIZIENZ_FARBEN[k.effizienzklasse] || "#00843D";
-  const istColor  = EFFIZIENZ_FARBEN[effizienzklasse]   || "#6B6259";
-  const zielText  = ["B","C","D"].includes(k.effizienzklasse) ? "#1E1A15" : "#FFF";
-  const istText   = ["C","D","E"].includes(effizienzklasse)   ? "#1E1A15" : "#FFF";
-
-  return (
-    <div className="flex flex-col lg:hidden print:hidden" style={{
-      position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40,
-      transform: open ? "translateY(0)" : "translateY(calc(100% - 68px))",
-      transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
-      maxHeight: "75vh",
-      background: "var(--bg)",
-      borderTop: "1.5px solid var(--bdr)",
-      borderRadius: "12px 12px 0 0",
-      boxShadow: "0 -6px 32px rgba(0,0,0,0.18)",
-    }}>
-      {/* Collapsed handle strip — always visible, tappable */}
-      <button onClick={() => setOpen(o => !o)} style={{
-        width: "100%", padding: "6px 16px 10px", background: "transparent", border: "none",
-        cursor: "pointer", flexShrink: 0, textAlign: "left",
-      }}>
-        <div style={{ width: 36, height: 4, background: "var(--bdr)", borderRadius: 2, margin: "0 auto 8px" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* EEK IST → ZIEL */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <div style={{ width: 30, height: 30, background: istColor, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, fontFamily: "'Fraunces', serif", color: istText }}>{effizienzklasse}</div>
-            <span style={{ fontSize: 13, color: "var(--acc)" }}>→</span>
-            <div style={{ width: 30, height: 30, background: zielColor, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, fontFamily: "'Fraunces', serif", color: zielText }}>{k.effizienzklasse}</div>
-          </div>
-          {/* Key numbers */}
-          <div style={{ flex: 1, display: "flex", gap: 14, fontSize: 11, fontFamily: "'Geist Mono', monospace", color: "var(--body)", flexWrap: "wrap" }}>
-            <span style={{ color: "var(--pos)", fontWeight: 600 }}>PE −{peReduction} %</span>
-            <span>Eigenanteil {fmtEur(k.eigenanteil)}</span>
-          </div>
-          <span style={{ fontSize: 10, color: "var(--sec)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.28s", flexShrink: 0 }}>▼</span>
-        </div>
-      </button>
-
-      {/* Expanded scrollable content */}
-      <div style={{ overflowY: "auto", padding: "4px 16px 32px", flex: 1, scrollbarWidth: "thin" }}>
-        <div className="text-[9.5px] tracking-[0.18em] uppercase mb-3"
-             style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>Ergebnis · Live</div>
-
-        {/* EEK comparison */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{ flex: 1, background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "8px 10px", textAlign: "center" }}>
-            <div style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--sec)", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 6 }}>Heute</div>
-            <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, background: istColor, borderRadius: 3, fontSize: 18, fontWeight: 600, fontFamily: "'Fraunces', serif", color: istText }}>{effizienzklasse}</div>
-          </div>
-          <span style={{ fontSize: 22, color: "var(--acc)", flexShrink: 0 }}>→</span>
-          <div style={{ flex: 1, background: zielColor, border: "1.25px solid var(--txt)", borderRadius: 3, padding: "8px 10px", textAlign: "center" }}>
-            <div style={{ fontSize: 9, letterSpacing: "0.2em", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 6, color: zielText === "#FFF" ? "rgba(248,245,239,0.7)" : "rgba(30,26,21,0.6)" }}>Ziel</div>
-            <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, background: "var(--bg)", borderRadius: 3, fontSize: 18, fontWeight: 600, fontFamily: "'Fraunces', serif", color: zielColor }}>{k.effizienzklasse}</div>
-          </div>
-        </div>
-
-        {/* Paket-Übersicht */}
-        <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "10px 12px", marginBottom: 10 }}>
-          <div className="text-[10.5px] tracking-[0.18em] uppercase mb-2" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>Paket-Übersicht</div>
-          {reportSummaryPackages.length === 0 ? (
-            <div style={{ fontSize: 12, color: "var(--sec)" }}>Noch keine Maßnahmen aktiv.</div>
-          ) : reportSummaryPackages.map((pkg, idx) => (
-            <div key={pkg.id} style={{ padding: "8px 0", borderBottom: idx < reportSummaryPackages.length - 1 ? "1px solid var(--div)" : "none" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: PAKET_FARBEN[pkg.farbe]?.bg || "#6B6259", display: "inline-block", flexShrink: 0 }} />
-                  <span style={{ fontSize: 12.5, color: "var(--txt)", fontWeight: 500 }}>Paket {pkg.nummer} · {pkg.titel}</span>
-                </div>
-                <span style={{ fontSize: 10.5, fontFamily: "'Geist Mono', monospace", flexShrink: 0 }}>{fmtEur(pkg.kosten)}</span>
-              </div>
-              <div style={{ paddingLeft: 16 }}>
-                {pkg.massnahmen_aktiv_obj.map(m => {
-                  const istEmpf = empfohleneMassnahmen.includes(m.id);
-                  const istNichtEmpf = nichtEmpfohleneMassnahmen.includes(m.id) && !istEmpf;
-                  const warum = getWarum(m.id, {
-                    bauteile_state: effectiveBauteilState, gebaeude, aktiveMassnahmen,
-                    empfohlen: istEmpf, nichtEmpfohlen: istNichtEmpf,
-                  });
-                  return (
-                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, minHeight: 22, marginBottom: 1 }}>
-                      <span
-                        onClick={() => scrollToTab(`paket-${pkg.id}`)}
-                        style={{ fontSize: 11, color: "var(--body)", cursor: "pointer", flex: 1 }}
-                        onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"}
-                        onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}
-                      >{m.kurztitel}</span>
-                      {istEmpf && (
-                        <Tooltip content={<span><b>Warum empfohlen:</b><br />{warum.grund}</span>}>
-                          <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#F6D400", color: "#1E1A15", fontFamily: "'Geist Mono', monospace", fontWeight: 600, flexShrink: 0 }}>★</span>
-                        </Tooltip>
-                      )}
-                      {istNichtEmpf && (
-                        <Tooltip content={<span><b>Wirtschaftlichkeit gering:</b><br />{warum.jetzt}</span>}>
-                          <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "var(--div)", color: "var(--sec)", fontFamily: "'Geist Mono', monospace", fontWeight: 600, flexShrink: 0 }}>✕</span>
-                        </Tooltip>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* KPI Scorecards 2×2 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-          {[
-            { label: "Primärenergie", istVal: ist.primaerenergie, zielVal: k.primaerenergie, unit: "kWh/(m²·a)", posColor: "var(--pos)" },
-            { label: "Endenergie",    istVal: ist.endenergie,     zielVal: k.endenergie,     unit: "kWh/(m²·a)", posColor: "var(--pos)" },
-            { label: "CO₂",          istVal: ist.co2,            zielVal: k.co2,            unit: "kg/(m²·a)",  posColor: "var(--pos)" },
-            { label: "Heizkosten",   istVal: heizkosten,          zielVal: k.heizkosten_gesamt, unit: "€/a",    posColor: "var(--gold)" },
-          ].map(({ label, istVal, zielVal, unit, posColor }) => {
-            const pct = istVal > 0 ? Math.round(Math.abs(zielVal - istVal) / istVal * 100) : 0;
-            const down = zielVal < istVal;
-            const fill = istVal > 0 ? Math.round(Math.min(zielVal / istVal, 1) * 100) : 0;
-            const fmtV = n => unit === "€/a" ? fmtEur(n) : new Intl.NumberFormat("de-DE").format(Math.round(n));
-            const barColor = down ? posColor : "var(--neg)";
-            return (
-              <div key={label} style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)",
-                                        borderRadius: 3, padding: "10px 11px" }}>
-                <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.14em",
-                              textTransform: "uppercase", color: "var(--sec)", marginBottom: 3 }}>{label}</div>
-                <div style={{ fontSize: 19, fontWeight: 600, fontFamily: "'Geist Mono', monospace",
-                              color: down ? posColor : "var(--neg)", marginBottom: 4, lineHeight: 1 }}>
-                  {down ? "−" : "+"}{pct}%
-                </div>
-                <div style={{ height: 4, background: "var(--div)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-                  <div style={{ height: "100%", width: `${fill}%`, background: barColor, borderRadius: 2, transition: "width 0.3s" }} />
-                </div>
-                <div style={{ fontSize: 8.5, fontFamily: "'Geist Mono', monospace", color: "var(--sec)", lineHeight: 1.3 }}>
-                  {fmtV(istVal)} → {fmtV(zielVal)} {unit}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Amortisation + PE-Ausbeute — drawer */}
-        {k.eigenanteil > 0 && (() => {
-          const hatWP = aktiveMassnahmen.includes("M4");
-          const hasPV = aktiveMassnahmen.includes("M6");
-          const pvRevenue = hasPV ? berechnePvErtrag(hatWP).gesamtEur : 0;
-          const { istJahr, zielJahr } = berechneHeizungWartung({
-            traeger: traegerFuerHeizung(gebaeude.heizung_typ), wpVariante: resolvedWpVariante, hatWP, hatPV: hasPV,
-          });
-          const effHKIst  = wirtschaftlichkeitOverrides.heizkostenIst  ?? heizkosten;
-          const effHKZiel = wirtschaftlichkeitOverrides.heizkostenZiel ?? k.heizkosten_gesamt;
-          const effWIst   = wirtschaftlichkeitOverrides.wartungIst     ?? istJahr;
-          const effWZiel  = wirtschaftlichkeitOverrides.wartungZiel    ?? zielJahr;
-          const annualSaving = Math.round(effHKIst - effHKZiel + pvRevenue + effWIst - effWZiel);
-          const amortYears = annualSaving > 0 ? Math.round(k.eigenanteil / annualSaving) : null;
-          const peSavedTotal = Math.round((ist.primaerenergie - k.primaerenergie) * (gebaeude.wohnflaeche ?? 0));
-          const peAusbeute = peSavedTotal > 0 ? Math.round(peSavedTotal / k.eigenanteil * 1000) : null;
-          if (!amortYears && !peAusbeute) return null;
-          return (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-              {amortYears ? (
-                <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)",
-                              borderRadius: 3, padding: "10px 11px" }}>
-                  <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.14em",
-                                textTransform: "uppercase", color: "var(--sec)", marginBottom: 3 }}>Amortisation</div>
-                  <div style={{ fontSize: 19, fontWeight: 600, fontFamily: "'Geist Mono', monospace",
-                                color: "var(--gold)", marginBottom: 4, lineHeight: 1 }}>~{amortYears} J</div>
-                  <div style={{ height: 4, background: "var(--div)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-                    <div style={{ height: "100%", width: `${Math.min(Math.round(20 / amortYears * 100), 100)}%`,
-                                  background: amortYears <= 20 ? "var(--pos)" : "var(--gold)", borderRadius: 2 }} />
-                  </div>
-                  <div style={{ fontSize: 8.5, fontFamily: "'Geist Mono', monospace", color: "var(--sec)", lineHeight: 1.3 }}>
-                    {fmtEur(k.eigenanteil)} / {fmtEur(annualSaving)}/J
-                  </div>
-                </div>
-              ) : <div />}
-              {peAusbeute ? (
-                <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)",
-                              borderRadius: 3, padding: "10px 11px" }}>
-                  <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.14em",
-                                textTransform: "uppercase", color: "var(--sec)", marginBottom: 3 }}>PE-Ausbeute</div>
-                  <div style={{ fontSize: 19, fontWeight: 600, fontFamily: "'Geist Mono', monospace",
-                                color: "var(--pos)", marginBottom: 8, lineHeight: 1 }}>{peAusbeute}</div>
-                  <div style={{ fontSize: 8.5, fontFamily: "'Geist Mono', monospace", color: "var(--sec)", lineHeight: 1.3 }}>
-                    kWh PE / 1.000 € · {new Intl.NumberFormat("de-DE").format(peSavedTotal)} kWh/a
-                  </div>
-                </div>
-              ) : <div />}
-            </div>
-          );
-        })()}
-
-        {/* Investment summary */}
-        <div style={{ background: "var(--bg)", border: "1px solid var(--bdr)", borderRadius: 3, padding: "10px 12px", fontSize: 12 }}>
-          <div className="flex justify-between mb-1.5" style={{ color: "var(--body)" }}>
-            <span>Investition</span>
-            <span style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(k.invest_gesamt)}</span>
-          </div>
-          <div className="flex justify-between mb-1.5" style={{ color: "var(--pos)" }}>
-            <span>Förderung</span>
-            <span style={{ fontFamily: "'Geist Mono', monospace" }}>−{fmtEur(k.foerderung_gesamt)}</span>
-          </div>
-          <div className="flex justify-between font-medium" style={{ color: "var(--txt)", marginTop: 4, paddingTop: 6, borderTop: "1px solid var(--bdr)" }}>
-            <span>Eigenanteil</span>
-            <span style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(k.eigenanteil)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ═══ TOOLTIP ═══════════════════════════════════════════════════════════
-const Tooltip = ({ content, children, align = "center" }) => {
-  const triggerRef = useRef(null);
-  const [pos, setPos] = useState(null);
-
-  const open = () => {
-    if (!triggerRef.current) return;
-    const r = triggerRef.current.getBoundingClientRect();
-    setPos({ cx: r.left + r.width / 2, top: r.top });
-  };
-  const close = () => setPos(null);
-
-  let left = null;
-  let caretLeft = 140;
-  if (pos) {
-    const raw = align === "right" ? pos.cx - 280 : align === "left" ? pos.cx : pos.cx - 140;
-    left = Math.max(8, Math.min(raw, (typeof window !== "undefined" ? window.innerWidth : 800) - 296));
-    caretLeft = Math.max(10, Math.min(pos.cx - left, 270));
-  }
-
-  return (
-    <span ref={triggerRef}
-      style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "help" }}
-      onMouseEnter={open} onMouseLeave={close}
-      onClick={() => pos ? close() : open()}>
-      {children}
-      {pos && (
-        <span style={{
-          position: "fixed",
-          top: pos.top - 8,
-          left,
-          transform: "translateY(-100%)",
-          zIndex: 9999,
-          background: "#1E1A15", color: "#F8F5EF",
-          padding: "10px 14px", borderRadius: 3, fontSize: 12,
-          lineHeight: 1.5, width: 280, textAlign: "left",
-          boxShadow: "0 4px 18px rgba(30,26,21,0.25)", fontWeight: 400,
-          pointerEvents: "none",
-        }}>
-          {content}
-          <span style={{
-            position: "absolute", top: "100%", left: caretLeft,
-            transform: "translateX(-50%)", width: 0, height: 0,
-            borderLeft: "6px solid transparent", borderRight: "6px solid transparent",
-            borderTop: "6px solid #1E1A15",
-          }} />
-        </span>
-      )}
-    </span>
-  );
-};
-
-// ═══ EDITABLE INPUTS ═══════════════════════════════════════════════════
-const labelStyle = { color: "var(--body)", fontSize: 13 };
-const valueStyle = {
-  fontFamily: "'Geist Mono', ui-monospace, monospace",
-  fontVariantNumeric: "tabular-nums", color: "var(--txt)", fontSize: 14,
-};
-
-const RowShell = ({ children }) => (
-  <div className="flex items-baseline justify-between gap-3"
-       style={{ padding: "9px 0", borderBottom: "1px solid var(--div)", minHeight: 38 }}>
-    {children}
-  </div>
-);
-
-const NumberInput = ({ label, value, onChange, unit, min, max, step = 1, tooltip }) => {
-  const [local, setLocal] = useState(String(value ?? ""));
-  useEffect(() => { setLocal(String(value ?? "")); }, [value]);
-  const commit = () => {
-    const n = parseFloat(local.replace(",", "."));
-    if (Number.isFinite(n)) {
-      const clamped = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n));
-      onChange(clamped);
-    } else {
-      setLocal(String(value ?? ""));
-    }
-  };
-  return (
-    <RowShell>
-      <span style={{ ...labelStyle, minWidth: 0 }} className="flex items-center gap-1.5 flex-wrap">
-        {label}
-        {tooltip && <Tooltip align="right" content={tooltip}><span style={{ color: "var(--acc)" }}><InfoIcon /></span></Tooltip>}
-      </span>
-      <span className="flex items-baseline gap-1.5" style={{ flexShrink: 0 }}>
-        <input type="text" inputMode="decimal" value={local}
-          onChange={(e) => setLocal(e.target.value)} onBlur={commit}
-          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-          style={{ ...valueStyle, background: "transparent", border: "none",
-                   borderBottom: "1px dotted var(--bdr)", outline: "none",
-                   textAlign: "right", width: 92, padding: "2px 2px", fontSize: 14 }} />
-        {unit && <span style={{ fontSize: 12, color: "var(--sec)", whiteSpace: "nowrap" }}>{unit}</span>}
-      </span>
-    </RowShell>
-  );
-};
-
-const TextInput = ({ label, value, onChange, placeholder }) => (
-  <RowShell>
-    <span style={labelStyle}>{label}</span>
-    <input type="text" value={value ?? ""}
-      onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-      style={{ ...valueStyle, background: "transparent", border: "none",
-               borderBottom: "1px dotted #D3CAB9", outline: "none",
-               textAlign: "right", flex: 1, marginLeft: 12, padding: "2px 2px", minWidth: 0 }} />
-  </RowShell>
-);
-
-const SelectInput = ({ label, value, onChange, options, tooltip }) => (
-  <RowShell>
-    <span style={{ ...labelStyle, flexShrink: 0 }} className="flex items-center gap-1.5">
-      {label}
-      {tooltip && <Tooltip content={tooltip}><span style={{ color: "var(--acc)" }}><InfoIcon /></span></Tooltip>}
-    </span>
-    <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}
-      style={{ ...valueStyle, background: "transparent",
-               border: "1px solid var(--bdr)", borderRadius: 2,
-               padding: "4px 26px 4px 8px", appearance: "none",
-               backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%236B6259' fill='none' stroke-width='1.2'/></svg>\")",
-               backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-               cursor: "pointer", outline: "none", fontSize: 13,
-               minWidth: 0, maxWidth: "min(220px, 55%)" }}>
-      {options.map(o => {
-        const opt = typeof o === "string" ? { value: o, label: o } : o;
-        return <option key={opt.value} value={opt.value}>{opt.label}</option>;
-      })}
-    </select>
-  </RowShell>
-);
-
-const ComputedRow = ({ label, value, unit, tooltip }) => (
-  <div className="flex items-baseline justify-between gap-3"
-       style={{ padding: "9px 0", borderBottom: "1px solid var(--div)", minHeight: 38 }}>
-    <span className="flex items-center gap-1.5" style={labelStyle}>
-      {label}
-      <span style={{ color: "var(--acc)" }} title="Automatisch berechnet"><SparkleIcon size={11} /></span>
-      {tooltip && <Tooltip content={tooltip}><span style={{ color: "var(--acc)" }}><InfoIcon /></span></Tooltip>}
-    </span>
-    <span className="text-right" style={valueStyle}>
-      {value}{unit && <span style={{ fontSize: 12, color: "var(--sec)", marginLeft: 4 }}>{unit}</span>}
-    </span>
-  </div>
-);
-
-// ═══ LAYOUT SHELLS ═════════════════════════════════════════════════════
-const Section = ({ id, eyebrow, title, subtitle, children }) => (
-  <section id={id} className="mb-16" style={{ scrollMarginTop: 92 }}>
-    {eyebrow && (
-      <div className="text-[11px] tracking-[0.22em] uppercase mb-3" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
-        {eyebrow}
-      </div>
-    )}
-    {title && (
-      <h2 className="font-serif leading-[1.05] mb-3" style={{ fontSize: 32, fontWeight: 400, color: "var(--txt)", letterSpacing: "-0.01em" }}>
-        {title}
-      </h2>
-    )}
-    {subtitle && (
-      <p className="max-w-2xl text-[15px] leading-relaxed mb-8" style={{ color: "var(--body)" }}>
-        {subtitle}
-      </p>
-    )}
-    {children}
-  </section>
-);
-
-const Card = ({ children, style }) => (
-  <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: 24, ...style }}>
-    {children}
-  </div>
-);
-
-const CardEyebrow = ({ children }) => (
-  <div className="text-[11px] tracking-[0.22em] uppercase mb-4"
-       style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
-    {children}
-  </div>
-);
-
-const KPI = ({ label, value, unit, big = false, style, tooltip }) => (
-  <div style={style}>
-    <div className="text-[11px] tracking-[0.2em] uppercase mb-2 flex items-center gap-1.5"
-         style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>
-      {label}
-      {tooltip && <Tooltip content={tooltip}><span style={{ color: "var(--acc)" }}><InfoIcon size={11} /></span></Tooltip>}
-    </div>
-    <div className="flex items-baseline gap-1.5">
-      <span className="font-serif leading-none"
-        style={{ fontSize: big ? 48 : 30, fontWeight: 400, color: "var(--txt)",
-                 fontVariantNumeric: "tabular-nums" }}>
-        {value}
-      </span>
-      {unit && <span className="text-[13px]" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>{unit}</span>}
-    </div>
-  </div>
-);
-
-// ═══ PRESET PICKER ═════════════════════════════════════════════════════
-const PresetPicker = ({ activeId, onPick, onUploadClick, uploadLoading }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-    {Object.values(PRESETS).map(preset => {
-      const active = activeId === preset.id;
-      return (
-        <button key={preset.id} onClick={() => onPick(preset.id)}
-          className="print-hide"
-          style={{
-            padding: 0, textAlign: "left",
-            background: active ? "var(--txt)" : "var(--surface)",
-            color: active ? "var(--bg)" : "var(--txt)",
-            border: active ? "1.5px solid var(--txt)" : "1.25px solid var(--bdr)",
-            borderRadius: 3, cursor: "pointer", transition: "all 0.12s",
-            overflow: "hidden",
-          }}
-          onMouseEnter={(e) => { if (!active) e.currentTarget.style.borderColor = "var(--acc)"; }}
-          onMouseLeave={(e) => { if (!active) e.currentTarget.style.borderColor = "var(--bdr)"; }}
-        >
-          {preset.photoUrl && (
-            <div style={{ position: "relative" }}>
-              <img src={preset.photoUrl} alt={preset.label}
-                style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} />
-              {preset.photoCredit && (
-                <div style={{ position: "absolute", bottom: 0, right: 0, fontSize: 8,
-                              color: "rgba(255,255,255,0.75)", background: "rgba(0,0,0,0.35)",
-                              padding: "1px 5px", lineHeight: 1.4 }}>
-                  {preset.photoCredit}
-                </div>
-              )}
-            </div>
-          )}
-          <div style={{ padding: "14px 18px" }}>
-            <div className="text-[10.5px] tracking-[0.2em] uppercase mb-1.5"
-                 style={{ color: active ? "#F6A400" : "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
-              Preset
-            </div>
-            <div className="font-serif text-[17px] leading-tight mb-1" style={{ fontWeight: 500 }}>
-              {preset.label}
-            </div>
-            <div className="text-[12px]" style={{ color: active ? "var(--bg)" : "var(--sec)", opacity: active ? 0.72 : 1 }}>
-              {preset.beschreibung}
-            </div>
-          </div>
-        </button>
-      );
-    })}
-    <button className="print-hide" onClick={onUploadClick}
-      style={{
-        padding: "16px 20px", textAlign: "left",
-        background: "var(--surface)", color: "var(--txt)",
-        border: "1.5px dashed #D3CAB9",
-        borderRadius: 3, cursor: "pointer", transition: "all 0.12s",
-        outline: "none",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--acc)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--bdr)"; }}
-    >
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-[10.5px] tracking-[0.2em] uppercase"
-          style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>Energieausweis</span>
-        <span className="text-[9.5px] tracking-[0.1em] uppercase px-1.5 py-0.5"
-          style={{ color: "var(--sec)", border: "1px solid var(--bdr)", borderRadius: 100,
-                   fontFamily: "'Geist Mono', monospace" }}>Demo</span>
-      </div>
-      <div className="font-serif text-[17px] leading-tight mb-1" style={{ fontWeight: 500 }}>
-        {uploadLoading ? "Wird ausgelesen …" : "PDF hochladen"}
-      </div>
-      <div className="text-[12px]" style={{ color: "var(--sec)" }}>
-        Energieausweis einlesen — experimentell, manuelle Nachbearbeitung empfohlen
-      </div>
-    </button>
-  </div>
-);
-
-// ═══ UPLOAD ZONE ═══════════════════════════════════════════════════════
-
-const PdfReviewPanel = ({ result, onApply, onReject }) => {
-  const [selected, setSelected] = React.useState(() => {
-    const s = new Set();
-    for (const m of result.matched || []) s.add(m.key + "/" + m.targetName);
-    return s;
-  });
-
-  const toggle = (key, targetName) => {
-    const composite = key + "/" + targetName;
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(composite)) next.delete(composite); else next.add(composite);
-      return next;
-    });
-  };
-
-  const gebaeudeFields = (result.matched || []).filter(m => m.targetName === "gebaeude");
-  const istFields = (result.matched || []).filter(m => m.targetName === "ist");
-
-  const FieldRow = ({ m }) => {
-    const composite = m.key + "/" + m.targetName;
-    const isChecked = selected.has(composite);
-    return (
-      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
-                      padding: "5px 0", borderBottom: "1px solid var(--div)" }}>
-        <input type="checkbox" checked={isChecked} onChange={() => toggle(m.key, m.targetName)}
-          style={{ accentColor: "#00843D", width: 14, height: 14, cursor: "pointer", flexShrink: 0 }} />
-        <span style={{ fontSize: 12, color: "var(--sec)", minWidth: 130, flexShrink: 0 }}>{m.label}</span>
-        <span style={{ fontSize: 12, fontFamily: "'Geist Mono', monospace", color: isChecked ? "var(--txt)" : "var(--sec)" }}>
-          {String(m.value)}
-        </span>
-      </label>
-    );
-  };
-
-  return (
-    <div className="print-hide" style={{
-      background: "var(--surface)", border: "1.25px solid #B5623E",
-      borderRadius: 3, padding: "16px 20px",
-    }}>
-      <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--txt)", marginBottom: 4 }}>
-        {result.fileName} — {result.matched?.length ?? 0} Felder erkannt
-      </div>
-      <div style={{ fontSize: 12, color: "var(--sec)", marginBottom: 12 }}>
-        Prüfen Sie die extrahierten Werte und wählen Sie, welche übernommen werden sollen.
-      </div>
-      {gebaeudeFields.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase",
-                        fontFamily: "'Geist Mono', monospace", color: "var(--acc)", marginBottom: 4 }}>Gebäudedaten</div>
-          {gebaeudeFields.map(m => <FieldRow key={m.key + "/" + m.targetName} m={m} />)}
-        </div>
-      )}
-      {istFields.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase",
-                        fontFamily: "'Geist Mono', monospace", color: "var(--acc)", marginBottom: 4 }}>Energiekennzahlen</div>
-          {istFields.map(m => <FieldRow key={m.key + "/" + m.targetName} m={m} />)}
-        </div>
-      )}
-      {(result.missed?.length ?? 0) > 0 && (
-        <div style={{ fontSize: 11, fontStyle: "italic", color: "var(--sec)", marginBottom: 10 }}>
-          Nicht erkannt: {result.missed.join(", ")}
-        </div>
-      )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => onApply(selected)}
-          style={{ padding: "7px 16px", background: "#00843D", color: "#FFF", border: "none",
-                   borderRadius: 3, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
-          Übernehmen ({selected.size} Felder)
-        </button>
-        <button onClick={onReject}
-          style={{ padding: "7px 14px", background: "transparent", color: "var(--sec)",
-                   border: "1.25px solid var(--bdr)", borderRadius: 3, cursor: "pointer", fontSize: 13 }}>
-          Verwerfen
-        </button>
-      </div>
-    </div>
-  );
-};
-
-const ExtractionResult = ({ result, onDismiss }) => {
-  const matchedCount = result.matched?.length ?? 0;
-  return (
-    <div className="print-hide" style={{
-      background: matchedCount > 0 ? "#F1F7F1" : "#FBF2E8",
-      border: `1.25px solid ${matchedCount > 0 ? "#34A030" : "#F07D00"}`,
-      borderRadius: 3, padding: "18px 22px",
-    }}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2">
-            {matchedCount > 0 ? (
-              <span style={{ display: "inline-flex", width: 20, height: 20, borderRadius: 100,
-                             background: "#00843D", alignItems: "center", justifyContent: "center" }}>
-                <CheckIcon size={12} color="#FFF" />
-              </span>
-            ) : (
-              <span style={{ color: "#F07D00", fontSize: 18, fontWeight: 700 }}>!</span>
-            )}
-            <span className="text-[14.5px] font-medium" style={{ color: "var(--txt)" }}>
-              {matchedCount > 0
-                ? `${matchedCount} Felder aus ${result.fileName} übernommen`
-                : `Aus ${result.fileName} konnten keine Standardfelder erkannt werden`}
-            </span>
-          </div>
-          {matchedCount > 0 && (
-            <div className="text-[12.5px] leading-relaxed" style={{ color: "var(--body)" }}>
-              {result.matched.map((m, i) => (
-                <span key={i}>
-                  <span style={{ color: "var(--sec)" }}>{m.label}:</span>{" "}
-                  <span style={{ fontFamily: "'Geist Mono', monospace", color: "var(--txt)" }}>{String(m.value)}</span>
-                  {i < (result.matched?.length ?? 0) - 1 && <span style={{ color: "var(--bdr)" }}>  ·  </span>}
-                </span>
-              ))}
-            </div>
-          )}
-          {(result.missed?.length ?? 0) > 0 && (
-            <div className="text-[11.5px] mt-2 italic" style={{ color: "var(--sec)" }}>
-              Nicht automatisch erkannt: {result.missed.join(", ")} — bitte manuell prüfen.
-            </div>
-          )}
-        </div>
-        <button onClick={onDismiss} style={{ background: "transparent", border: "none",
-          color: "var(--sec)", fontSize: 18, cursor: "pointer", padding: 4 }} aria-label="Schließen">✕</button>
-      </div>
-    </div>
-  );
-};
-
-// ═══ BAUTEIL-KACHEL mit benannten Stufen ══════════════════════════════
-const BauteilKachel = ({ bauteil, onNoteChange }) => {
-  const farbe = NOTE_FARBEN[bauteil.note];
-  const stufenLabels = BAUTEIL_STUFEN[bauteil.id] || {};
-  const currentLabel = stufenLabels[bauteil.note] || bauteil.info;
-  return (
-    <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: 16,
-                  display: "flex", flexDirection: "column", gap: 10 }}>
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-[13.5px] font-medium" style={{ color: "var(--txt)" }}>{bauteil.label}</span>
-        <span className="inline-flex items-center justify-center text-[11px] font-medium"
-          style={{ width: 24, height: 24, borderRadius: 100, background: farbe, color: "#FFFFFF",
-                   fontFamily: "'Geist Mono', monospace" }}>{bauteil.note}</span>
-      </div>
-      <div style={{
-        height: 4, borderRadius: 100,
-        background: `linear-gradient(to right, ${farbe} 0%, ${farbe} ${(bauteil.note / 7) * 100}%, #E2DBD0 ${(bauteil.note / 7) * 100}%)`,
-      }} />
-      <input type="range" min={1} max={7} step={1} value={bauteil.note}
-        onChange={(e) => onNoteChange(bauteil.id, parseInt(e.target.value, 10))}
-        className="print-hide"
-        style={{ width: "100%", height: 4, margin: 0, background: "transparent", accentColor: "#B5623E", cursor: "pointer" }} />
-      <div className="text-[11.5px] leading-snug font-medium" style={{ color: "var(--txt)" }}>
-        {currentLabel}
-      </div>
-      {bauteil.info && stufenLabels[bauteil.note] && stufenLabels[bauteil.note] !== bauteil.info && (
-        <div className="text-[10.5px]" style={{ color: "var(--sec)", fontStyle: "italic" }}>{bauteil.info}</div>
-      )}
-    </div>
-  );
-};
-
-// ═══ DYNAMIC "WARUM" GENERATOR ═══════════════════════════════════════════
-// Returns { grund, jetzt } strings tailored to current building state and active measures.
-function getWarum(measureId, ctx) {
-  const { bauteile_state: bs, gebaeude, aktiveMassnahmen, empfohlen, nichtEmpfohlen } = ctx;
-  switch (measureId) {
-    case "M1": {
-      const grund = "Hydraulischer Abgleich verteilt das Heizwasser gleichmäßig auf alle Räume — kein Heizkörper läuft mehr zu kalt oder zu heiß.";
-      const jetzt = aktiveMassnahmen.includes("M4")
-        ? "Nach WP-Einbau zwingend: BEG-Pflicht und neue Massenströme machen einen erneuten Abgleich nötig."
-        : "Sofort umsetzbar — geringe Investition, schnelle Heizkostenwirkung, Voraussetzung für viele BEG-Anträge.";
-      return { grund, jetzt };
-    }
-    case "M2": {
-      const note = bs.dach || 2;
-      const grund = note <= 2
-        ? "Ihr Dach ist ungedämmt. Bis zu 30 % der Heizenergie geht über das Dach verloren — höchstes Einsparpotenzial im Gebäude."
-        : note <= 4
-        ? "Ihr Dach hat Teildämmung. Eine Aufdopplung bringt noch spürbare Einsparungen."
-        : "Ihr Dach ist bereits gut gedämmt. Zusätzliche Dämmung lohnt sich kaum.";
-      const jetzt = aktiveMassnahmen.includes("M4")
-        ? "Vor der Wärmepumpe einplanen: schlechte Hülle macht eine größer dimensionierte (teurere) WP nötig."
-        : "Frühzeitig umsetzen — kurze Bauzeit, hohe Wirkung pro investiertem Euro.";
-      return { grund, jetzt };
-    }
-    case "M3": {
-      const note = bs.fenster || 2;
-      const grund = note <= 2
-        ? "Ihre Fenster sind alt und undicht — Zugluft und hohe Wärmeverluste. Sehr hohes Einsparpotenzial."
-        : note <= 3
-        ? "Ihre Fenster haben ältere Zweifachverglasung. Mit 3-fach-Verglasung sind noch spürbare Primärenergieeinsparungen möglich."
-        : note <= 4
-        ? "Ihre Fenster sind auf mittlerem Standard. 3-fach-Verglasung bringt noch mäßige Einsparung."
-        : "Fenster bereits auf hohem Standard — Tausch lohnt energetisch kaum.";
-      const jetzt = nichtEmpfohlen
-        ? "Hoher Investitionsbetrag bei kleiner PE-Wirkung — Dachdämmung oder WP zuerst priorisieren."
-        : "Sinnvoll bei größerer Hüllsanierung; Fensterlaibungen bei der Fassadendämmung mitdenken.";
-      return { grund, jetzt };
-    }
-    case "M4": {
-      const m7Geplant = (bs.verteilung || 2) >= 6;
-      const vt = m7Geplant ? 35 : vorlauftemperaturFuer(gebaeude.waermeverteilung);
-      const envAvg = ((bs.waende||2) + (bs.dach||2)) / 2;
-      const istOel = /Heizöl/i.test(gebaeude.heizung_typ || "");
-      const rawAutoKey = wpTypVarianteKey(vt, envAvg);
-      const autoKey = (rawAutoKey === "hybrid" && istOel) ? "monoenergetisch" : rawAutoKey;
-      const wpReady = vt <= 50;
-      const grund = wpReady
-        ? `Vorlauftemperatur ${vt} °C — Gebäude ist sofort WP-ready (${WP_VARIANTEN[autoKey]?.label}). Senkt Heizenergie um Faktor 3–4.`
-        : aktiveMassnahmen.includes("M7")
-        ? `Mit Erneuerung Wärmeverteilung (M7): Vorlauftemperatur sinkt auf 35 °C → Monovalent-Betrieb möglich (COP ~4–5).`
-        : `Aktuelle Vorlauftemperatur ${vt} °C zu hoch für effizienten WP-Betrieb. Ohne M7 nur ${WP_VARIANTEN[autoKey]?.label} sinnvoll.`;
-      const jetzt = aktiveMassnahmen.includes("M7")
-        ? "Nach Wärmeverteilung-Umbau einbauen — dann ist Monovalent-Betrieb (höchster COP) erreichbar."
-        : (aktiveMassnahmen.includes("M2") || aktiveMassnahmen.includes("M5"))
-        ? "Nach Hüllsanierung einbauen — WP kann kleiner dimensioniert werden, was Investition senkt."
-        : "GEG §71 ab 2026 macht erneuerbare Wärmeerzeugung beim Heizungstausch zur Pflicht — frühzeitig planen.";
-      return { grund, jetzt };
-    }
-    case "M5": {
-      const note = bs.waende || 2;
-      const grund = note <= 2
-        ? "Ihre Außenwände sind ungedämmt — größter Verlust- und Schimmelrisiko-Faktor der Gebäudehülle."
-        : note <= 4
-        ? "Wände teilgedämmt — Aufdopplung lohnt nur bei sowieso fälliger Putzerneuerung."
-        : "Fassade bereits gut gedämmt — Dämmung lohnt energetisch kaum.";
-      const jetzt = nichtEmpfohlen
-        ? "Ihr €/kWh-Score liegt über 20 €/kWh — andere Maßnahmen bringen mehr Einsparung je investiertem Euro."
-        : "Idealerweise gemeinsam mit fälliger Putzerneuerung umsetzen — Gerüstkosten bereits eingerechnet.";
-      return { grund, jetzt };
-    }
-    case "M6": {
-      const grund = aktiveMassnahmen.includes("M4")
-        ? "Mit Wärmepumpe besonders attraktiv: Eigenstrom senkt WP-Betriebskosten direkt und verbessert die CO₂-Bilanz."
-        : "Wirtschaftlich auch ohne WP — amortisiert sich über Eigenverbrauch und EEG-Einspeisung in 8–12 Jahren.";
-      const jetzt = "Reihenfolge flexibel — sinnvoll am Schluss, wenn Strombedarf der WP geplant ist.";
-      return { grund, jetzt };
-    }
-    case "M7": {
-      const vt = vorlauftemperaturFuer(gebaeude.waermeverteilung);
-      const grund = vt > 55
-        ? `Aktuelle Vorlauftemperatur ${vt} °C ist zu hoch für effizienten WP-Betrieb. Umbau senkt VT auf ~35 °C.`
-        : vt > 45
-        ? `Vorlauftemperatur ${vt} °C — Umbau ermöglicht Monovalent statt Monoenergetisch.`
-        : `Vorlauftemperatur bereits niedrig (${vt} °C). Umbau bringt nur noch geringen Effizienzgewinn.`;
-      const jetzt = aktiveMassnahmen.includes("M4")
-        ? "Vor WP-Einbau erledigen — sonst muss man Estrich/Heizkreis zweimal anfassen."
-        : "Eigenständig kaum lohnend — Wirkung entsteht erst durch Wärmepumpe.";
-      return { grund, jetzt };
-    }
-    default:
-      return { grund: "", jetzt: "" };
-  }
-}
-
-// ═══ PAKET-BLOCK mit Kostenherleitung-Tooltip ═══════════════════════════
-const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, aktiveMassnahmen, empfohleneMassnahmen = [], nichtEmpfohleneMassnahmen = [], gebaeude = {}, bauteile_state = {}, wpVariante = "auto", resolvedWpVariante = "monovalent", onWpVarianteChange = () => {} }) => {
-  const f = PAKET_FARBEN[paket.farbe];
-  const aktiveMassnahmenInPaket = paket.massnahmen.filter(massnahme => aktiveMassnahmen.includes(massnahme.id));
-  const summe_invest  = aktiveMassnahmenInPaket.reduce((s, massnahme) => s + massnahme.investition, 0);
-  const summe_instand = aktiveMassnahmenInPaket.reduce((s, massnahme) => s + (massnahme.ohnehin_anteil ?? 0), 0);
-  const summe_foerder = aktiveMassnahmenInPaket.reduce((s, massnahme) => {
-    const netto = massnahme.investition - (massnahme.ohnehin_anteil ?? 0);
-    const bonus = BEG_BONUS.isfp_bonus;
-    const klimaBonus = (massnahme.id === "M4" && /Heizöl|Erdgas/i.test(gebaeude.heizung_typ || "")) ? 0.10 : 0;
-    const quote = massnahme.foerderquote > 0 ? Math.min(massnahme.foerderquote + bonus + klimaBonus, 0.5) : 0;
-    return s + netto * quote;
-  }, 0);
-  const eigenanteil   = summe_invest - summe_foerder;
-  const foerderPct    =summe_invest - summe_instand > 0 ? Math.round(summe_foerder / (summe_invest - summe_instand) * 100) : 0;
-  const firstM        = aktiveMassnahmenInPaket[0];
-  const [warumOffen, setWarumOffen] = useState(new Set());
-  const toggleWarum = mid => setWarumOffen(prev => { const s = new Set(prev); s.has(mid) ? s.delete(mid) : s.add(mid); return s; });
-  const [vorOrtOffen, setVorOrtOffen] = useState(false);
-
-  return (
-    <div id={`paket-${paket.id}`} className="transition-all" style={{
-      background: "var(--surface)",
-      border: aktiv ? "1.75px solid var(--txt)" : "1.25px solid var(--bdr)",
-      borderRadius: 3, overflow: "hidden", opacity: aktiv ? 1 : 0.55,
-    }}>
-      <div className="flex items-stretch">
-        <div className="flex items-center justify-center shrink-0" style={{ width: 88, background: "var(--bg)", borderRight: "1.25px solid var(--bdr)" }}>
-          <PaketHaus farbe={paket.farbe} aktiv={aktiv} nummer={paket.nummer} size={62} />
-        </div>
-        <div className="flex-1 p-5 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="flex items-center gap-3 mb-1.5">
-              <span className="text-[11px] tracking-[0.2em] uppercase" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>
-                Paket {paket.nummer}
-              </span>
-            </div>
-            <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 500, color: "var(--txt)" }}>{paket.titel}</h3>
-          </div>
-          <button onClick={onToggle} className="flex items-center gap-2.5 transition print-hide"
-            style={{ padding: "8px 16px",
-                     border: `1.25px solid ${aktiv ? "var(--txt)" : "var(--bdr)"}`, borderRadius: 3,
-                     background: aktiv ? "var(--txt)" : "transparent",
-                     color: aktiv ? "var(--bg)" : "var(--body)",
-                     fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}>
-            <span className="inline-block relative" style={{
-              width: 14, height: 14, borderRadius: 2,
-              background: aktiv ? "var(--bg)" : "transparent",
-              border: aktiv ? "none" : "1.25px solid var(--sec)",
-            }}>
-              {aktiv && (
-                <svg viewBox="0 0 14 14" width="14" height="14" style={{ position: "absolute", top: 0, left: 0 }}>
-                  <path d="M3 7.5 L6 10.5 L11 4.5" stroke="var(--txt)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              )}
-            </span>
-            {aktiv ? "Im Fahrplan" : "Ausgeblendet"}
-          </button>
-        </div>
-      </div>
-
-      <div>
-        {paket.massnahmen.map((massnahme, i) => {
-          const massnahmeAktiv = aktiveMassnahmen.includes(massnahme.id);
-          const warum = getWarum(massnahme.id, {
-            bauteile_state, gebaeude, aktiveMassnahmen,
-            empfohlen: empfohleneMassnahmen.includes(massnahme.id),
-            nichtEmpfohlen: nichtEmpfohleneMassnahmen.includes(massnahme.id),
-          });
-          return (
-          <div key={massnahme.id} className="p-5" style={{ borderBottom: i < paket.massnahmen.length - 1 ? "1px solid #E2DBD0" : "none", opacity: massnahmeAktiv ? 1 : 0.45, transition: "opacity 0.15s" }}>
-            <div className="mb-4">
-              <div className="mb-1.5" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
-                <div className="text-[14.5px] font-medium flex items-center gap-2 flex-wrap" style={{ color: "var(--txt)", flex: 1 }}>
-                <label className="print-hide" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--sec)", fontFamily: "'Geist Mono', monospace", letterSpacing: "0.05em" }}>
-                  <input type="checkbox" checked={massnahmeAktiv} onChange={() => onToggleMassnahme(massnahme.id)}
-                    style={{ accentColor: "#2A8B7A", width: 14, height: 14, cursor: "pointer" }} />
-                </label>
-                <span style={{ textDecoration: aktiv && !massnahmeAktiv ? "line-through" : "none" }}>{massnahme.titel}</span>
-                {massnahme._isMovedAbgleich && (
-                  <span style={{ background: "#EBF5F3", color: "#1B4840", border: "1px solid #8CBDB5", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", flexShrink: 0 }}>
-                    Pflicht nach BEG
-                  </span>
-                )}
-                {empfohleneMassnahmen.includes(massnahme.id) && (
-                  <Tooltip content={
-                    <span>
-                      <b>Warum empfohlen:</b><br />{warum.grund}
-                      {massnahme.rolle === "synergie" && aktiveMassnahmen.includes("M4") && (
-                        <><br /><br />⚡ <b>Synergie mit Wärmepumpe:</b> Eigenstrom deckt WP-Betrieb — senkt Betriebskosten und verbessert CO₂-Bilanz.</>
-                      )}
-                    </span>
-                  }>
-                    <span className="print-hide" style={{ background: "#F6D400", color: "#1E1A15", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", fontWeight: 600, letterSpacing: "0.06em", flexShrink: 0, cursor: "help" }}>
-                      ★ Empfohlen
-                    </span>
-                  </Tooltip>
-                )}
-                {empfohleneMassnahmen.includes(massnahme.id) && !massnahmeAktiv && (
-                  <span className="print-hide" title="Empfohlene Maßnahme wurde deaktiviert" style={{ background: "#FEF2E8", color: "var(--acc)", border: "1px solid #F5C09A", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", fontWeight: 600, letterSpacing: "0.06em", flexShrink: 0 }}>
-                    ⚠ Abgewählt
-                  </span>
-                )}
-                {nichtEmpfohleneMassnahmen.includes(massnahme.id) && !empfohleneMassnahmen.includes(massnahme.id) && (
-                  <Tooltip content={<span><b>Wirtschaftlichkeit gering:</b><br />{warum.jetzt}</span>}>
-                    <span className="print-hide" style={{ background: "var(--div)", color: "var(--sec)", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", fontWeight: 600, letterSpacing: "0.06em", flexShrink: 0, cursor: "help" }}>
-                      ✕ Nicht empfohlen
-                    </span>
-                  </Tooltip>
-                )}
-                <Tooltip content={
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Kosten-Herleitung</div>
-                    <div style={{ fontSize: 11.5, marginBottom: 8 }}>{massnahme.kostenherleitung}</div>
-                    <div style={{ fontWeight: 600, marginBottom: 4, marginTop: 8 }}>Förderung</div>
-                    <div style={{ fontSize: 11.5 }}>
-                      {massnahme.foerderung_rechtsgrundlage} · durchgeführt durch {massnahme.foerderung_stelle}
-                      {massnahme.foerderquote > 0 && <><br/>Grundquote: {Math.round(massnahme.foerderquote * 100)} % · mit iSFP-Bonus: {Math.round((massnahme.foerderquote + BEG_BONUS.isfp_bonus) * 100)} %</>}
-                    </div>
-                  </div>
-                }>
-                  <span style={{ color: "var(--acc)" }}><InfoIcon /></span>
-                </Tooltip>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, minWidth: 140 }}>
-                  {massnahme.co2_reduktion > 0 && (
-                    <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11.5, color: "var(--sec)", textAlign: "right" }}>
-                      CO₂ −{massnahme.co2_reduktion} kg/(m²·a)
-                    </div>
-                  )}
-                  <button className="print-hide" onClick={() => toggleWarum(massnahme.id)}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5,
-                             color: "var(--acc)", background: "none", border: "none", padding: 0,
-                             cursor: "pointer", fontFamily: "'Geist Mono', monospace" }}>
-                    Warum {warumOffen.has(massnahme.id) ? "▾" : "▸"}
-                  </button>
-                </div>
-              </div>
-              <div className="text-[13px] leading-relaxed" style={{ color: "var(--body)" }}>{massnahme.beschreibung}</div>
-              {massnahme.investition > 0 && (
-                <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11.5, color: "var(--sec)", marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ color: "var(--txt)" }}>{fmtEur(massnahme.investition)}</span>
-                  {massnahme.id === "M6"
-                    ? (() => {
-                        const mitWP = aktiveMassnahmen.includes("M4");
-                        const { gesamtEur, evEur, einsEur } = berechnePvErtrag(mitWP);
-                        const amort = Math.round(massnahme.investition / gesamtEur);
-                        return (
-                          <>
-                            <span>·</span>
-                            <span style={{ color: "var(--pos)" }}>{fmtEur(gesamtEur)}/J Ertrag</span>
-                            <span style={{ fontSize: 10.5 }}>(10 kWp · {fmtEur(evEur)} Eigenverbrauch{mitWP ? " inkl. WP" : ""} + {fmtEur(einsEur)} Einspeisung)</span>
-                            <span>· Amortisation ~{amort} J</span>
-                          </>
-                        );
-                      })()
-                    : massnahme.foerderquote > 0
-                      ? (() => {
-                          const effQuote = Math.min((massnahme.foerderquote ?? 0) + 0.05, 0.50);
-                          return (
-                            <>
-                              <span>·</span>
-                              <span>{Math.round(effQuote * 100)} % BEG → −{fmtEur(Math.round(massnahme.investition * effQuote))}</span>
-                            </>
-                          );
-                        })()
-                      : null
-                  }
-                </div>
-              )}
-            </div>
-            {massnahme.id === "M4" && (() => {
-              const m7Geplant = (bauteile_state.verteilung || 2) >= 6;
-              const vt = m7Geplant ? 35 : vorlauftemperaturFuer(gebaeude.waermeverteilung);
-              const envAvg = ((bauteile_state.waende||2) + (bauteile_state.dach||2) + (bauteile_state.fenster||2)) / 3;
-              const istOel = /Heizöl/i.test(gebaeude.heizung_typ || "");
-              const hatGas = /Gas/i.test(gebaeude.heizung_typ || "");
-              // For oil buildings, auto never picks hybrid — mirror suppression logic from effectiveBauteilState
-              const rawAutoKey = wpTypVarianteKey(vt, envAvg);
-              const autoKey = (rawAutoKey === "hybrid" && istOel) ? "monoenergetisch" : rawAutoKey;
-              const currentV = WP_VARIANTEN[resolvedWpVariante] || WP_VARIANTEN.monovalent;
-              const isOverriding = wpVariante !== "auto" && wpVariante !== autoKey;
-              const hybridOhneGas = resolvedWpVariante === "hybrid" && !hatGas;
-              const hybridMitOel  = resolvedWpVariante === "hybrid" && istOel;
-              return (
-                <div style={{ marginBottom: 12, background: "var(--bg)", border: "1px solid var(--bdr)", borderRadius: 3, padding: "10px 12px", fontSize: 12 }}>
-                  <div style={{ fontWeight: 600, color: "var(--txt)", marginBottom: 8 }}>WP-Variante</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
-                    {Object.entries(WP_VARIANTEN).map(([key, v]) => {
-                      const isSelected = key === resolvedWpVariante;
-                      const isAuto = key === autoKey;
-                      return (
-                        <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 8px", borderRadius: 3, background: isSelected ? "rgba(42,139,122,0.15)" : "transparent", border: isSelected ? "1px solid var(--acc)" : "1px solid transparent" }}>
-                          <input type="radio" name={`wp-${paket.id}`} value={key} checked={isSelected} onChange={() => onWpVarianteChange(key)} style={{ accentColor: "#2A8B7A" }} />
-                          <span style={{ color: "var(--txt)", fontWeight: isSelected ? 600 : 400 }}>{v.label}</span>
-                          {isAuto && <span style={{ fontSize: 10, color: "#2A8B7A", fontFamily: "'Geist Mono', monospace" }}>empfohlen</span>}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {hybridMitOel && (
-                    <div style={{ color: "var(--acc)", fontSize: 11.5, marginTop: 2, marginBottom: 6, padding: "5px 8px", background: "#FEF2E8", borderRadius: 3, border: "1px solid #F5C09A" }}>
-                      ⚠ Hybrid-Gas schafft neue fossile Infrastruktur beim Ölgebäude. Monovalent oder Monoenergetisch bevorzugen.
-                    </div>
-                  )}
-                  {/* HP-Eignungseinschätzung */}
-                  <div style={{
-                    marginTop: 6, fontSize: 11.5, padding: "7px 10px", borderRadius: 3,
-                    background: vt <= 50 && envAvg >= 4 ? "rgba(27,104,58,0.08)" : "var(--surface2)",
-                    color: "var(--body)",
-                    border: `1px solid ${vt <= 50 && envAvg >= 4 ? "#8CBDB5" : "var(--bdr)"}`,
-                  }}>
-                    {vt <= 50 && envAvg >= 4
-                      ? `✓ Thermisch sehr gut geeignet (VT ${vt} °C) — Monovalent-Betrieb realistisch.`
-                      : vt <= 55
-                      ? `Thermisch geeignet bei VT ${vt} °C — ${WP_VARIANTEN[autoKey]?.label} empfohlen.`
-                      : `VT ${vt} °C zu hoch — erst Hülle sanieren und/oder M7 (Wärmeverteilung) aktivieren.`
-                    }
-                  </div>
-                  {/* Vor-Ort-Klärung */}
-                  <div style={{ marginTop: 8 }}>
-                    <button onClick={() => setVorOrtOffen(v => !v)}
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                               fontSize: 11.5, color: "var(--acc)", fontFamily: "'Geist Mono', monospace",
-                               display: "flex", alignItems: "center", gap: 4 }}>
-                      Vor-Ort zu klären {vorOrtOffen ? "▾" : "▸"}
-                    </button>
-                    {vorOrtOffen && (
-                      <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid var(--bdr)",
-                                    fontSize: 11, color: "var(--body)", display: "flex", flexDirection: "column", gap: 7 }}>
-                        <div><b>Aufstellort Außengerät</b> — Mindestabstand 3 m zur Nachbargrenze (TA Lärm). Bei Reihenhaus oft kritisch.</div>
-                        <div><b>Stromanschluss</b> — 3-Phasen 400 V mit freiem 3×16 A (oder 3×25 A). Altbauten oft 1-phasig oder 35 A Hausanschluss → Erneuerung ca. 1.500–4.000 €.</div>
-                        <div><b>Trinkwarmwasser</b> — Bei &gt;4 Personen Pufferspeicher 300+ L oder separate Brauchwasser-WP empfohlen.</div>
-                        <div><b>Heizflächen-Reserve</b> — Auch bei VT 50 °C können Einzelräume (Bad, Eckzimmer) unterdimensionierte Heizkörper haben → punktueller Tausch ggf. nötig.</div>
-                        <div><b>Schallimmission</b> — Aufstellung ≥ 3 m vom Nachbar-Schlafraum (TA Lärm: 35 dB(A) nachts am Immissionsort).</div>
-                      </div>
-                    )}
-                  </div>
-                  {(istOel || hybridOhneGas) && (
-                    <div style={{ marginTop: 10, borderTop: "1px solid var(--bdr)", paddingTop: 8 }}>
-                      <div style={{ fontWeight: 600, fontSize: 10.5, color: "var(--sec)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "'Geist Mono', monospace" }}>Begleitkosten</div>
-                      {istOel && (
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--body)", marginBottom: 3 }}>
-                          <span>Öltank-Stilllegung & Entsorgung</span>
-                          <span style={{ fontFamily: "'Geist Mono', monospace" }}>~2.500 €</span>
-                        </div>
-                      )}
-                      {hybridOhneGas && (
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--body)" }}>
-                          <span>Gasanschluss-Herstellung</span>
-                          <span style={{ fontFamily: "'Geist Mono', monospace" }}>~3.000–5.000 €</span>
-                        </div>
-                      )}
-                      <div style={{ fontSize: 10.5, color: "var(--sec)", marginTop: 5, fontStyle: "italic" }}>Nicht förderfähig — erhöhen den Eigenanteil.</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-            {warumOffen.has(massnahme.id) && (
-              <div style={{ marginTop: 8, background: "#EBF4F2", border: "1px solid #A8D5CD",
-                            borderRadius: 3, padding: "12px 14px", fontSize: 12, lineHeight: 1.6, color: "#1E3A35" }}>
-                {warum.grund && (
-                  <div style={{ marginBottom: 10 }}>
-                    <span style={{ fontWeight: 600, color: "var(--acc)" }}>Warum diese Maßnahme: </span>{warum.grund}
-                  </div>
-                )}
-                {warum.jetzt && (
-                  <div>
-                    <span style={{ fontWeight: 600, color: "var(--acc)" }}>Warum jetzt: </span>{warum.jetzt}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          );
-        })}
-      </div>
-
-      <div className="px-5 py-4 grid grid-cols-3 gap-4" style={{ background: "var(--bg)", borderTop: "1.25px solid var(--bdr)" }}>
-        <div>
-          <div className="text-[10.5px] tracking-[0.18em] uppercase mb-1" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>Investition</div>
-          <div className="text-[15px]" style={{ fontFamily: "'Geist Mono', monospace", color: "var(--txt)", fontVariantNumeric: "tabular-nums" }}>{fmtEur(summe_invest)}</div>
-        </div>
-        <div>
-          <div className="text-[10.5px] tracking-[0.18em] uppercase mb-1" style={{ color: "var(--pos)", fontFamily: "'Geist Mono', monospace" }}>Förderung</div>
-          <div className="text-[15px]" style={{ fontFamily: "'Geist Mono', monospace", color: "var(--pos)", fontVariantNumeric: "tabular-nums" }}>
-            {summe_foerder > 0 ? `− ${fmtEur(summe_foerder)}` : "—"}
-          </div>
-          {firstM && foerderPct > 0 && (
-            <div className="text-[10.5px] mt-0.5" style={{ color: "var(--pos)", fontFamily: "'Geist Mono', monospace" }}>
-              {foerderPct} % · {firstM.foerderung_rechtsgrundlage}
-            </div>
-          )}
-        </div>
-        <div>
-          <div className="text-[10.5px] tracking-[0.18em] uppercase mb-1" style={{ color: "var(--txt)", fontFamily: "'Geist Mono', monospace" }}>Eigenanteil</div>
-          <div className="text-[15px]" style={{ fontFamily: "'Geist Mono', monospace", color: "var(--txt)", fontVariantNumeric: "tabular-nums", fontWeight: 500 }}>{fmtEur(eigenanteil)}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ═══ STICKY TAB NAV ════════════════════════════════════════════════════
 const TABS = [
@@ -1219,631 +136,24 @@ const StickyTabs = ({ activeId, onClick }) => (
   </div>
 );
 
-// ═══ GEBÄUDE-BILD (decoratively) ════════════════════════════════════════
-
-// ═══ ERGEBNIS-SECTION — Vorher/Nachher + Tabelle ════════════════════════
-const EffizienzBadge = ({ klasse, size = "md" }) => {
-  const farbe = EFFIZIENZ_FARBEN[klasse] || "#6B6259";
-  const dim = size === "lg" ? 84 : size === "md" ? 60 : 36;
-  const fs = size === "lg" ? 42 : size === "md" ? 28 : 16;
-  return (
-    <div className="inline-flex items-center justify-center font-serif"
-      style={{ width: dim, height: dim, background: farbe,
-               color: ["C","D","E"].includes(klasse) ? "#1E1A15" : "#FFFFFF",
-               borderRadius: 3, fontSize: fs, fontWeight: 500 }}>{klasse}</div>
-  );
-};
-
-const VorherNachher = ({ ist, k, heizkostenIst, gebaeude }) => {
-  const istTarif   = preisFuerHeizung(gebaeude.heizung_typ);
-  const istTraeger = traegerFuerHeizung(gebaeude.heizung_typ);
-  const fmtN       = n => new Intl.NumberFormat("de-DE").format(Math.round(n));
-  const fmtP       = p => p.toFixed(2).replace(".", ",");
-
-  const istTooltip = (
-    <span>
-      <b>Berechnung IST:</b><br />
-      {fmtN(ist.endenergie)} kWh/m² × {gebaeude.wohnflaeche} m²<br />
-      × {fmtP(istTarif)} €/kWh ({istTraeger})<br />
-      = <b>{fmtN(heizkostenIst)} €/Jahr</b>
-    </span>
-  );
-  const higher = k.heizkosten_gesamt > heizkostenIst;
-  const zielTooltip = (
-    <span>
-      <b>Berechnung ZIEL:</b><br />
-      {fmtN(k.endenergie)} kWh/m² × {gebaeude.wohnflaeche} m²<br />
-      × {fmtP(k.heizkosten_tarif)} €/kWh ({k.heizkosten_traeger})<br />
-      = <b>{fmtN(k.heizkosten_gesamt)} €/Jahr</b>
-      {higher && <><br /><span style={{ color: "var(--acc)" }}>Höher als IST: WP-Stromtarif ({fmtP(k.heizkosten_tarif)} €/kWh) ist teurer als {istTraeger} ({fmtP(istTarif)} €/kWh), aber Endenergie sinkt stark — Hüllsanierung würde dies korrigieren.</span></>}
-    </span>
-  );
-
-  const stdRows = (rows, border) => rows.map((r, i) => (
-    <div key={i} className="flex items-baseline justify-between gap-3"
-         style={{ padding: "9px 0", borderBottom: i < rows.length - 1 ? border : "none", fontSize: 13 }}>
-      <span style={{ color: "var(--body)" }}>{r[0]}</span>
-      <span style={valueStyle}>
-        {r[1]}<span style={{ fontSize: 12, color: "var(--sec)", marginLeft: 4 }}>{r[2]}</span>
-      </span>
-    </div>
-  ));
-
-  const dark = ["B","C","D"].includes(k.effizienzklasse);
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-[1fr,auto,1fr] gap-6 items-center">
-      {/* IST */}
-      <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "28px 26px" }}>
-        <div className="flex items-center justify-between mb-5">
-          <div className="text-[11px] tracking-[0.22em] uppercase" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>Heute</div>
-          <EffizienzBadge klasse={berechneEffizienzklasse(ist.primaerenergie)} size="md" />
-        </div>
-        <div className="space-y-3">
-          {stdRows([
-            ["Endenergie",    ist.endenergie,    "kWh/(m²·a)"],
-            ["Primärenergie", ist.primaerenergie, "kWh/(m²·a)"],
-            ["CO₂-Emissionen",ist.co2,            "kg/(m²·a)"],
-          ], "1px solid #E2DBD0")}
-          <div className="flex items-baseline justify-between gap-3" style={{ padding: "9px 0", fontSize: 13 }}>
-            <span style={{ color: "var(--body)" }}>Heizkosten gesamt</span>
-            <span style={valueStyle}>
-              {fmt(heizkostenIst)}
-              <span style={{ fontSize: 12, color: "var(--sec)", marginLeft: 4 }}>€/a</span>
-              <Tooltip content={istTooltip}>
-                <span style={{ marginLeft: 5, verticalAlign: "middle", color: "var(--acc)", cursor: "help" }}><InfoIcon size={11} /></span>
-              </Tooltip>
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col items-center justify-center gap-2 py-4">
-        <span className="font-serif text-[28px]" style={{ color: "var(--acc)" }}>→</span>
-        <span className="text-[10.5px] tracking-[0.22em] uppercase" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>Sanierungsfahrplan</span>
-      </div>
-
-      {/* ZIEL */}
-      <div style={{ background: EFFIZIENZ_FARBEN[k.effizienzklasse] || "#00843D", border: "1.25px solid var(--txt)", borderRadius: 3, padding: "28px 26px", color: dark ? "#1E1A15" : "#F8F5EF" }}>
-        <div className="flex items-center justify-between mb-5">
-          <div className="text-[11px] tracking-[0.22em] uppercase" style={{ color: dark ? "rgba(30,26,21,0.65)" : "rgba(248,245,239,0.75)", fontFamily: "'Geist Mono', monospace" }}>Ihr Haus in der Zukunft</div>
-          <div className="inline-flex items-center justify-center font-serif"
-               style={{ width: 60, height: 60, background: "var(--bg)", color: EFFIZIENZ_FARBEN[k.effizienzklasse], borderRadius: 3, fontSize: 28, fontWeight: 500 }}>{k.effizienzklasse}</div>
-        </div>
-        <div className="space-y-3">
-          {[
-            ["Endenergie",    k.endenergie,    "kWh/(m²·a)"],
-            ["Primärenergie", k.primaerenergie, "kWh/(m²·a)"],
-            ["CO₂-Emissionen",k.co2,            "kg/(m²·a)"],
-          ].map((r, i) => (
-            <div key={i} className="flex items-baseline justify-between gap-3"
-                 style={{ padding: "9px 0", borderBottom: `1px solid ${dark ? "rgba(30,26,21,0.18)" : "rgba(248,245,239,0.18)"}`, fontSize: 13 }}>
-              <span>{r[0]}</span>
-              <span style={{ fontFamily: "'Geist Mono', monospace", fontVariantNumeric: "tabular-nums", fontSize: 14 }}>
-                {r[1]}<span style={{ fontSize: 12, opacity: 0.7, marginLeft: 4 }}>{r[2]}</span>
-              </span>
-            </div>
-          ))}
-          <div className="flex items-baseline justify-between gap-3" style={{ padding: "9px 0", fontSize: 13 }}>
-            <span>Heizkosten gesamt</span>
-            <span style={{ fontFamily: "'Geist Mono', monospace", fontVariantNumeric: "tabular-nums", fontSize: 14 }}>
-              {fmt(k.heizkosten_gesamt)}
-              <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 4 }}>€/a</span>
-              <Tooltip content={zielTooltip}>
-                <span style={{ marginLeft: 5, verticalAlign: "middle", opacity: 0.75, cursor: "help" }}><InfoIcon size={11} /></span>
-              </Tooltip>
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const DeltaKPI = ({ label, vorher, nachher, unit }) => {
-  const delta = nachher - vorher;
-  const pct = vorher > 0 ? Math.round(Math.abs(delta) / vorher * 100) : 0;
-  return (
-    <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "22px 24px" }}>
-      <div className="text-[11px] tracking-[0.22em] uppercase mb-3" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>{label}</div>
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <span className="font-serif" style={{ fontSize: 34, fontWeight: 500, color: "var(--txt)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-          −{pct}%
-        </span>
-        <span className="text-[12px]" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>
-          {fmt(vorher)}{unit && ` ${unit}`} → {fmt(nachher)}{unit && ` ${unit}`}
-        </span>
-      </div>
-    </div>
-  );
-};
-
-// ═══ EEK ARROW SCALE ═══════════════════════════════════════════════════
-const EEK_ARROW_FARBEN = {
-  "H":  { bg: "#8B1A14", txt: "#fff" },
-  "G":  { bg: "#B83A2E", txt: "#fff" },
-  "F":  { bg: "#B83A2E", txt: "#fff" },
-  "E":  { bg: "#C8820A", txt: "#fff" },
-  "D":  { bg: "#C8820A", txt: "#1E1A15" },
-  "C":  { bg: "#6B9E1F", txt: "#fff" },
-  "B":  { bg: "#1B6B3A", txt: "#fff" },
-  "A":  { bg: "#1B6B3A", txt: "#fff" },
-  "A+": { bg: "#1B6B3A", txt: "#fff" },
-};
-const EEK_CLASSES = ["H","G","F","E","D","C","B","A","A+"];
-
-const EekArrowScale = ({ istKlasse, zielKlasse, istPe, zielPe }) => (
-  <div style={{ marginBottom: 28 }}>
-    <div style={{ fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase",
-                  fontFamily: "'Geist Mono', monospace", color: "var(--acc)", marginBottom: 10 }}>
-      Energieeffizienzklasse · Heute → Ziel
-    </div>
-    <div style={{ display: "flex", gap: 3, alignItems: "flex-end" }}>
-      {EEK_CLASSES.map(cls => {
-        const isIst  = cls === istKlasse;
-        const isZiel = cls === zielKlasse;
-        const active = isIst || isZiel;
-        const { bg, txt } = EEK_ARROW_FARBEN[cls] || { bg: "#6B6259", txt: "#fff" };
-        return (
-          <div key={cls} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div style={{
-              width: "100%", height: active ? 38 : 24,
-              background: bg,
-              opacity: active ? 1 : 0.3,
-              clipPath: "polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: active ? 13 : 10, fontWeight: 600,
-              fontFamily: "'Fraunces', Georgia, serif", color: txt,
-              outline: isIst ? "2.5px solid var(--txt)" : isZiel ? "2.5px solid var(--pos)" : "none",
-              outlineOffset: 1,
-              transition: "height 0.2s, opacity 0.2s",
-            }}>{cls}</div>
-            {(isIst || isZiel) && (
-              <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.06em",
-                            textTransform: "uppercase", textAlign: "center", lineHeight: 1.4,
-                            marginTop: 4, color: isZiel ? "var(--pos)" : "var(--sec)",
-                            whiteSpace: "pre-line" }}>
-                {isIst ? `Heute\n${istPe}` : `Ziel\n${zielPe}`}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  </div>
-);
-
-// ═══ MERGED TABLE (Energie + Kosten pro Schritt) ════════════════════════
-const MergedTable = ({ kumuliert, ist, heizkosten = 0 }) => {
-  const maxEE = ist.endenergie || 1;
-  const maxPE = ist.primaerenergie || 1;
-  const maxCO2 = ist.co2 || 1;
-
-  const totalInvest = kumuliert.length ? kumuliert[kumuliert.length - 1].nachher.invest_gesamt : 0;
-  const totalFoerd  = kumuliert.length ? kumuliert[kumuliert.length - 1].nachher.foerderung_gesamt : 0;
-
-  return (
-    <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "24px 28px" }}>
-      <div className="text-[11px] tracking-[0.22em] uppercase mb-4 flex items-center gap-2"
-           style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
-        Kumulierte Wirkung pro Paket
-        <Tooltip content="BAFA-Logik: jedes Paket wird auf dem Ergebnis des vorigen aufbauend berechnet. Zeigt den Fortschritt Schritt für Schritt.">
-          <span><InfoIcon size={11} /></span>
-        </Tooltip>
-      </div>
-      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-      <table className="w-full text-[12.5px]" style={{ fontVariantNumeric: "tabular-nums" }}>
-        <thead>
-          <tr style={{ borderBottom: "1.25px solid var(--txt)" }}>
-            <th className="text-left py-2.5 font-medium" style={{ width: 180 }}>Schritt</th>
-            <th className="text-right py-2.5 font-medium">
-              <Tooltip content="Tatsächlich gelieferter Energieträger in kWh pro m² Wohnfläche und Jahr.">
-                <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>Endenergie</span>
-              </Tooltip>
-            </th>
-            <th className="text-right py-2.5 font-medium">
-              <Tooltip content="Gesamtenergieeinsatz inkl. Vorkette. Basis für die Energieeffizienzklasse.">
-                <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>Primärenergie</span>
-              </Tooltip>
-            </th>
-            <th className="text-right py-2.5 font-medium">
-              <Tooltip content="CO₂-Emissionen in kg pro m² und Jahr.">
-                <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>CO₂</span>
-              </Tooltip>
-            </th>
-            <th className="text-right py-2.5 font-medium">Klasse</th>
-            <th className="text-right py-2.5 font-medium">
-              <Tooltip content="Investitionskosten für diesen Sanierungsschritt.">
-                <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>Invest</span>
-              </Tooltip>
-            </th>
-            <th className="text-right py-2.5 font-medium">Förderung</th>
-            <th className="text-right py-2.5 font-medium">Eigenanteil</th>
-            <th className="text-right py-2.5 font-medium">
-              <Tooltip content="Eigenanteil ÷ jährliche Nettoeinsparung (Energie + PV). Statische Preise.">
-                <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>Amortis.</span>
-              </Tooltip>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style={{ borderBottom: "1px solid var(--div)", background: "var(--surface2)" }}>
-            <td className="py-2.5" style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              <span className="text-[11px] tracking-[0.18em] uppercase mr-2" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>0</span>
-              Ausgangszustand
-            </td>
-            <td className="text-right py-2.5">
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                <span style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.endenergie}</span>
-                <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.primaerenergie)] || "var(--sec)", borderRadius: 2 }} />
-                </div>
-              </div>
-            </td>
-            <td className="text-right py-2.5">
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                <span style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.primaerenergie}</span>
-                <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.primaerenergie)] || "var(--sec)", borderRadius: 2 }} />
-                </div>
-              </div>
-            </td>
-            <td className="text-right py-2.5">
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                <span style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.co2}</span>
-                <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.primaerenergie)] || "var(--sec)", borderRadius: 2 }} />
-                </div>
-              </div>
-            </td>
-            <td className="text-right py-2.5">
-              <EffizienzBadge klasse={berechneEffizienzklasse(ist.primaerenergie)} size="sm" />
-            </td>
-            <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>
-            <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>
-            <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>
-            <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>
-          </tr>
-          {kumuliert.map((r, i) => {
-            const prevInvest = i === 0 ? 0 : kumuliert[i-1].nachher.invest_gesamt;
-            const prevFoerd  = i === 0 ? 0 : kumuliert[i-1].nachher.foerderung_gesamt;
-            const stepInvest = r.nachher.invest_gesamt - prevInvest;
-            const stepFoerd  = r.nachher.foerderung_gesamt - prevFoerd;
-            const stepEigen  = stepInvest - stepFoerd;
-            const prevHK = i === 0 ? heizkosten : kumuliert[i-1].nachher.heizkosten_gesamt;
-            const energySaving = prevHK - r.nachher.heizkosten_gesamt;
-            const hasPVStep = r.paket.massnahmen.some(m => m.id === "M6");
-            const mitWPStep = kumuliert.slice(0, i+1).some(s => s.paket.massnahmen.some(m => m.id === "M4"));
-            const pvRev = hasPVStep ? berechnePvErtrag(mitWPStep).gesamtEur : 0;
-            const annualSavingStep = energySaving + pvRev;
-            const amortYears = annualSavingStep > 0 && stepEigen > 0 ? Math.round(stepEigen / annualSavingStep) : null;
-            const barColor = EFFIZIENZ_FARBEN[r.nachher.effizienzklasse] || "var(--sec)";
-            const eeW = Math.round(Math.min(r.nachher.endenergie / maxEE, 1) * 100);
-            const peW = Math.round(Math.min(r.nachher.primaerenergie / maxPE, 1) * 100);
-            const coW = Math.round(Math.min(r.nachher.co2 / maxCO2, 1) * 100);
-            return (
-              <tr key={r.paket.id} style={{ borderBottom: i < kumuliert.length - 1 ? "1px solid var(--div)" : "none" }}>
-                <td className="py-2.5" style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <div className="flex items-center gap-2">
-                    <span style={{ width: 8, height: 8, borderRadius: 100, background: PAKET_FARBEN[r.paket.farbe]?.bg, display: "inline-block", flexShrink: 0 }} />
-                    <span className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace", flexShrink: 0 }}>P{r.paket.nummer}</span>
-                    <span style={{ color: "var(--txt)", overflow: "hidden", textOverflow: "ellipsis" }}>{r.paket.titel}</span>
-                  </div>
-                </td>
-                <td className="text-right py-2.5">
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                    <span style={{ fontFamily: "'Geist Mono', monospace" }}>{r.nachher.endenergie}</span>
-                    <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                      <div style={{ height: "100%", width: `${eeW}%`, background: barColor, borderRadius: 2 }} />
-                    </div>
-                  </div>
-                </td>
-                <td className="text-right py-2.5">
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                    <span style={{ fontFamily: "'Geist Mono', monospace" }}>{r.nachher.primaerenergie}</span>
-                    <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                      <div style={{ height: "100%", width: `${peW}%`, background: barColor, borderRadius: 2 }} />
-                    </div>
-                  </div>
-                </td>
-                <td className="text-right py-2.5">
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                    <span style={{ fontFamily: "'Geist Mono', monospace" }}>{r.nachher.co2}</span>
-                    <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                      <div style={{ height: "100%", width: `${coW}%`, background: barColor, borderRadius: 2 }} />
-                    </div>
-                  </div>
-                </td>
-                <td className="text-right py-2.5">
-                  <EffizienzBadge klasse={r.nachher.effizienzklasse} size="sm" />
-                </td>
-                <td className="text-right py-2.5" style={{ fontFamily: "'Geist Mono', monospace" }}>{stepInvest > 0 ? fmtEur(stepInvest) : "—"}</td>
-                <td className="text-right py-2.5" style={{ fontFamily: "'Geist Mono', monospace", color: stepFoerd > 0 ? "var(--pos)" : "var(--sec)" }}>
-                  {stepFoerd > 0 ? `−${fmtEur(stepFoerd)}` : "—"}
-                </td>
-                <td className="text-right py-2.5" style={{ fontFamily: "'Geist Mono', monospace" }}>{stepEigen > 0 ? fmtEur(stepEigen) : "—"}</td>
-                <td className="text-right py-2.5" style={{ fontFamily: "'Geist Mono', monospace", color: amortYears ? (amortYears <= 20 ? "var(--pos)" : "var(--gold)") : "var(--sec)" }}>
-                  {amortYears ? `~${amortYears} J` : "—"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr style={{ borderTop: "1.5px solid var(--txt)", background: "var(--surface2)" }}>
-            <td className="py-2.5 font-medium" colSpan={5}>Gesamt</td>
-            <td className="text-right py-2.5 font-medium" style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(totalInvest)}</td>
-            <td className="text-right py-2.5 font-medium" style={{ fontFamily: "'Geist Mono', monospace", color: totalFoerd > 0 ? "var(--pos)" : "var(--sec)" }}>
-              {totalFoerd > 0 ? `−${fmtEur(totalFoerd)}` : "—"}
-            </td>
-            <td className="text-right py-2.5 font-medium" style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(totalInvest - totalFoerd)}</td>
-            <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>
-          </tr>
-        </tfoot>
-      </table>
-      </div>
-    </div>
-  );
-};
-
-// ═══ KUMULIERT-TABELLE (BAFA-Logik) ═══════════════════════════════════
-const KumuliertTabelle = ({ kumuliert, ist, heizkostenIst }) => (
-  <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "24px 28px" }}>
-    <div className="text-[11px] tracking-[0.22em] uppercase mb-4 flex items-center gap-2"
-         style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
-      Kumulierte Wirkung pro Paket
-      <Tooltip content="BAFA-Logik: jedes Paket wird auf dem Ergebnis des vorigen aufbauend berechnet. Zeigt den Fortschritt Schritt für Schritt.">
-        <span><InfoIcon size={11} /></span>
-      </Tooltip>
-    </div>
-    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-    <table className="w-full text-[13px]" style={{ fontVariantNumeric: "tabular-nums", minWidth: 480 }}>
-      <thead>
-        <tr style={{ borderBottom: "1.25px solid #1E1A15" }}>
-          <th className="text-left py-2.5 font-medium">Schritt</th>
-          <th className="text-right py-2.5 font-medium">
-            <Tooltip content="Tatsächlich gelieferter Energieträger (Gas, Strom, Öl) in kWh pro m² Wohnfläche und Jahr. Entspricht dem Energieausweis-Verbrauchswert.">
-              <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 6 }}>Endenergie</span>
-            </Tooltip>
-          </th>
-          <th className="text-right py-2.5 font-medium">
-            <Tooltip content="Gesamtenergieeinsatz inkl. Gewinnung und Transport des Energieträgers (Primärenergiefaktor). Basis für die Energieeffizienzklasse nach GEG §86.">
-              <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 6 }}>Primärenergie</span>
-            </Tooltip>
-          </th>
-          <th className="text-right py-2.5 font-medium">
-            <Tooltip content="CO₂-Emissionen aus dem Heizenergieverbrauch in kg pro m² Wohnfläche und Jahr. Inkl. Vorkette des Energieträgers.">
-              <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 6 }}>CO₂</span>
-            </Tooltip>
-          </th>
-          <th className="text-right py-2.5 font-medium">Klasse</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr style={{ borderBottom: "1px solid var(--div)", background: "var(--bg)" }}>
-          <td className="py-3">
-            <span className="text-[11px] tracking-[0.18em] uppercase mr-2" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>0</span>
-            Ausgangszustand
-          </td>
-          <td className="text-right py-3" style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.endenergie}</td>
-          <td className="text-right py-3" style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.primaerenergie}</td>
-          <td className="text-right py-3" style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.co2}</td>
-          <td className="text-right py-3">
-            <EffizienzBadge klasse={berechneEffizienzklasse(ist.primaerenergie)} size="sm" />
-          </td>
-        </tr>
-        {kumuliert.map((r, i) => (
-          <tr key={r.paket.id} style={{ borderBottom: i < kumuliert.length - 1 ? "1px solid #E2DBD0" : "none" }}>
-            <td className="py-3">
-              <div className="flex items-center gap-2">
-                <span style={{ width: 10, height: 10, borderRadius: 100, background: PAKET_FARBEN[r.paket.farbe].bg, display: "inline-block" }} />
-                <span className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>P{r.paket.nummer}</span>
-                <span>{r.paket.titel}</span>
-              </div>
-            </td>
-            <td className="text-right py-3" style={{ fontFamily: "'Geist Mono', monospace" }}>{r.nachher.endenergie}</td>
-            <td className="text-right py-3" style={{ fontFamily: "'Geist Mono', monospace" }}>{r.nachher.primaerenergie}</td>
-            <td className="text-right py-3" style={{ fontFamily: "'Geist Mono', monospace" }}>{r.nachher.co2}</td>
-            <td className="text-right py-3">
-              <EffizienzBadge klasse={r.nachher.effizienzklasse} size="sm" />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    </div>
-  </div>
-);
-
-// ═══ iSFP-STYLE PRINT REPORT ═══════════════════════════════════════════
-
-const EEK_ZONEN = [
-  { klasse: "A+", von: 0,   bis: 30   },
-  { klasse: "A",  von: 30,  bis: 50   },
-  { klasse: "B",  von: 50,  bis: 75   },
-  { klasse: "C",  von: 75,  bis: 100  },
-  { klasse: "D",  von: 100, bis: 130  },
-  { klasse: "E",  von: 130, bis: 160  },
-  { klasse: "F",  von: 160, bis: 200  },
-  { klasse: "G",  von: 200, bis: 250  },
-  { klasse: "H",  von: 250, bis: 9999 },
-];
-
-const EnergieVerlaufChart = ({ ist, kumuliert, heizkosten = 0 }) => {
-  const [metric, setMetric] = useState("pe");
-  const W = 620, H = 380;
-  const PAD = { top: 60, right: 36, bottom: 40, left: 52 };
-  const pw = W - PAD.left - PAD.right;
-  const ph = H - PAD.top - PAD.bottom;
-
-  const METRICS = {
-    pe:         { label: "Primärenergie", unit: "kWh/(m²·a)", istVal: ist.primaerenergie,
-                  valFn: r => r.primaerenergie, fmtVal: v => `${Math.round(v)}`,
-                  ySnap: 25, yMin: 100, showEEK: true },
-    co2:        { label: "CO₂", unit: "kg/(m²·a)", istVal: ist.co2,
-                  valFn: r => r.co2, fmtVal: v => `${Number(v).toFixed(1)}`,
-                  ySnap: 10, yMin: 20, showEEK: false },
-    heizkosten: { label: "Heizkosten", unit: "€/J", istVal: heizkosten,
-                  valFn: r => r.heizkosten_gesamt,
-                  fmtVal: v => v >= 1000 ? `${Math.round(v / 100) / 10}k` : `${Math.round(v)}`,
-                  ySnap: 500, yMin: 1000, showEEK: false },
-  };
-  const cfg = METRICS[metric];
-
-  const punkte = [
-    { label: "Heute", val: cfg.istVal, bg: "#6E2E1E", klasse: berechneEffizienzklasse(ist.primaerenergie) },
-    ...kumuliert.map(r => ({
-      label: r.paket.titel,
-      val: cfg.valFn(r.nachher),
-      bg: PAKET_FARBEN[r.paket.farbe].bg,
-      klasse: r.nachher.effizienzklasse,
-    })),
-  ];
-
-  const yMax = Math.max(Math.ceil(cfg.istVal * 1.18 / cfg.ySnap) * cfg.ySnap, cfg.yMin);
-  const toY = v => PAD.top + ph * (1 - Math.min(v, yMax) / yMax);
-  const toX = i => PAD.left + (punkte.length > 1 ? pw * i / (punkte.length - 1) : pw / 2);
-
-  const visibleZonen = cfg.showEEK
-    ? EEK_ZONEN.filter(z => z.von < yMax).map(z => ({ ...z, bis: Math.min(z.bis, yMax) }))
-    : [];
-  const gridLines = cfg.showEEK
-    ? [0, 30, 50, 75, 100, 130, 160, 200, 250].filter(v => v > 0 && v <= yMax)
-    : (() => { const ls = []; for (let v = cfg.ySnap; v <= yMax; v += cfg.ySnap) ls.push(v); return ls; })();
-
-  const pathD = punkte.map((pt, i) =>
-    i === 0 ? `M ${toX(i)} ${toY(pt.val)}` : `H ${toX(i)} V ${toY(pt.val)}`
-  ).join(" ");
-  const areaD = pathD + ` V ${toY(0)} H ${toX(0)} Z`;
-
-  return (
-    <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "24px 28px", marginTop: 32 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-          {[["pe", "PE"], ["co2", "CO₂"], ["heizkosten", "Kosten"]].map(([key, lbl]) => (
-            <button key={key} onClick={() => setMetric(key)}
-              style={{ fontSize: 10, fontFamily: "'Geist Mono', monospace", padding: "3px 9px",
-                       borderRadius: 2, border: "1px solid var(--bdr)", cursor: "pointer",
-                       background: metric === key ? "var(--acc)" : "transparent",
-                       color: metric === key ? "#FFF" : "var(--sec)" }}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-        <div style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>
-          {cfg.label} · {cfg.unit}
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", aspectRatio: "620/380", minHeight: 220 }}>
-        <defs>
-          <clipPath id="evc-clip">
-            <rect x={PAD.left} y={PAD.top} width={pw} height={ph} />
-          </clipPath>
-        </defs>
-        {visibleZonen.map(z => (
-          <rect key={z.klasse}
-            x={PAD.left} y={toY(z.bis)} width={pw} height={toY(z.von) - toY(z.bis)}
-            fill={EFFIZIENZ_FARBEN[z.klasse]} opacity={0.13}
-            clipPath="url(#evc-clip)"
-          />
-        ))}
-        {gridLines.map(v => (
-          <line key={v}
-            x1={PAD.left} y1={toY(v)} x2={PAD.left + pw} y2={toY(v)}
-            stroke="var(--bdr)" strokeWidth={0.75} strokeDasharray="4 3"
-          />
-        ))}
-        {[0, ...gridLines].map(v => (
-          <text key={v} x={PAD.left - 6} y={toY(v) + 3.5}
-            textAnchor="end" fontSize={9} fill="#9B8E82"
-            fontFamily="'Geist Mono', monospace">{cfg.showEEK ? v : cfg.fmtVal(v)}</text>
-        ))}
-        {visibleZonen.map(z => {
-          const yMid = (toY(z.von) + toY(z.bis)) / 2;
-          return (
-            <text key={z.klasse}
-              x={PAD.left + pw + 5} y={yMid + 4}
-              fontSize={9} fill={EFFIZIENZ_FARBEN[z.klasse]}
-              fontFamily="'Geist Mono', monospace" fontWeight={700}
-            >{z.klasse}</text>
-          );
-        })}
-        <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + ph} stroke="var(--bdr)" strokeWidth={1} />
-        <line x1={PAD.left} y1={PAD.top + ph} x2={PAD.left + pw} y2={PAD.top + ph} stroke="var(--bdr)" strokeWidth={1} />
-        <path d={areaD} fill="var(--txt)" opacity={0.06} clipPath="url(#evc-clip)" />
-        <path d={pathD} fill="none" stroke="var(--txt)" strokeWidth={2}
-          strokeLinejoin="round" strokeLinecap="round" clipPath="url(#evc-clip)" />
-        {punkte.map((pt, i) => {
-          const x = toX(i), y = toY(pt.val);
-          return (
-            <g key={i}>
-              {cfg.showEEK ? (
-                <>
-                  <text x={x} y={y - 36} textAnchor="middle" fontSize={8.5} fill="#3A332B"
-                    fontFamily="'Geist Mono', monospace" fontWeight={500}>{cfg.fmtVal(pt.val)}</text>
-                  <rect x={x - 12} y={y - 33} width={24} height={20} rx={2}
-                    fill={EFFIZIENZ_FARBEN[pt.klasse]} />
-                  <text x={x} y={y - 18} textAnchor="middle" fontSize={12} fontWeight={700}
-                    fontFamily="'Fraunces', serif" fill={textColorFor(pt.klasse)}>{pt.klasse}</text>
-                </>
-              ) : (
-                <text x={x} y={y - 18} textAnchor="middle" fontSize={8.5} fill="#3A332B"
-                  fontFamily="'Geist Mono', monospace" fontWeight={500}>{cfg.fmtVal(pt.val)}</text>
-              )}
-              <circle cx={x} cy={y} r={5.5} fill={pt.bg} stroke="#FFF" strokeWidth={2} />
-              <text x={x} y={14} textAnchor="middle" fontSize={8.5} fill={pt.bg}
-                fontFamily="'Geist Mono', monospace" fontWeight={600}>{pt.label}</text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-};
-
 // ═══ MAIN APP ══════════════════════════════════════════════════════════
 
 export default function App() {
+  // Startzustand = gleicher Weg wie ein Klick auf das Preset (erstelleStartzustand)
+  const [start] = useState(() => erstelleStartzustand("efhNachkrieg"));
   const [presetId, setPresetId] = useState("efhNachkrieg");
-  const [gebaeude, setGebaeude] = useState(PRESETS.efhNachkrieg.gebaeude);
-  const [ist, setIst] = useState(PRESETS.efhNachkrieg.ist);
-  const [bauteile, setBauteile] = useState(() => ableiteBauteile(
-    PRESETS.efhNachkrieg.gebaeude.baujahr,
-    PRESETS.efhNachkrieg.gebaeude.heizung_typ,
-    PRESETS.efhNachkrieg.gebaeude.lueftung,
-    PRESETS.efhNachkrieg.gebaeude.warmwasser,
-  ));
-  const [aktiveMassnahmen, setAktiveMassnahmen] = useState(() => {
-    const bs = {};
-    ableiteBauteile(
-      PRESETS.efhNachkrieg.gebaeude.baujahr,
-      PRESETS.efhNachkrieg.gebaeude.heizung_typ,
-      PRESETS.efhNachkrieg.gebaeude.lueftung,
-      PRESETS.efhNachkrieg.gebaeude.warmwasser,
-    ).forEach(b => { bs[b.id] = b.note; });
-    // intentional: uses raw MASSNAHMENPAKETE — effectivePakete (useMemo) doesn't exist during useState init
-    return MASSNAHMENPAKETE.flatMap(p =>
-      p.massnahmen
-        .filter(m => Math.abs((m.impact ? m.impact(bs) : { primaerenergie_delta: m.primaerenergie_delta || 0 }).primaerenergie_delta) >= 3)
-        .map(m => m.id)
-    );
-  });
+  const [gebaeude, setGebaeude] = useState(start.gebaeude);
+  const [ist, setIst] = useState(start.ist);
+  const [bauteile, setBauteile] = useState(start.bauteile);
+  const [aktiveMassnahmen, setAktiveMassnahmen] = useState(start.aktiveMassnahmen);
   const [massnahmenOverrides, setMassnahmenOverrides] = useState({});
   const [wpVariante, setWpVariante] = useState("auto");
   const [extraction, setExtraction] = useState(null);
   const [pendingExtraction, setPendingExtraction] = useState(null);
-  const [sanierungsstandProBauteil, setSanierungsstandProBauteil] = useState(() =>
-    sanierungsstandAusBauteile(ableiteBauteile(
-      PRESETS.efhNachkrieg.gebaeude.baujahr,
-      PRESETS.efhNachkrieg.gebaeude.heizung_typ,
-      PRESETS.efhNachkrieg.gebaeude.lueftung,
-      PRESETS.efhNachkrieg.gebaeude.warmwasser,
-    ))
-  );
+  const [sanierungsstandProBauteil, setSanierungsstandProBauteil] = useState(() => sanierungsstandAusBauteile(start.bauteile));
   const [activeTab, setActiveTab] = useState("gebaeude");
   const [darkMode, setDarkMode] = useState(false);
   const [wirtschaftlichkeitOverrides, setWirtschaftlichkeitOverrides] = useState({});
-  const [hintergruendeOffen, setHintergruendeOffen] = useState(false);
   const [sanierungsstandOffen, setSanierungsstandOffen] = useState(false);
 
   useEffect(() => {
@@ -1866,32 +176,24 @@ export default function App() {
     return () => window.removeEventListener("scroll", handler);
   }, []);
 
-  const updateGebaeude = useCallback((field, value) => {
-    setGebaeude(prev => {
-      const next = { ...prev, [field]: value };
-      const rebuildBauteileFields = ["baujahr", "heizung_typ", "lueftung", "warmwasser"];
-      const recalcMassnahmenFields = ["baujahr", "heizung_typ", "lueftung", "warmwasser", "waermeverteilung", "erneuerbare"];
-      if (rebuildBauteileFields.includes(field)) {
-        const neueBauteile = ableiteBauteile(next.baujahr, next.heizung_typ, next.lueftung, next.warmwasser);
-        setBauteile(neueBauteile);
-        setSanierungsstandProBauteil(sanierungsstandAusBauteile(neueBauteile));
-        if (recalcMassnahmenFields.includes(field)) {
-          const bs = {};
-          neueBauteile.forEach(b => { bs[b.id] = b.note; });
-          setAktiveMassnahmen(getDefaultAktiveMassnahmen(next, bs));
-        }
-      } else if (recalcMassnahmenFields.includes(field)) {
-        // No bauteile rebuild needed, but recalculate measures with current bauteile state
-        setBauteile(prevB => {
-          const bs = {};
-          prevB.forEach(b => { bs[b.id] = b.note; });
-          setAktiveMassnahmen(getDefaultAktiveMassnahmen(next, bs));
-          return prevB;
-        });
-      }
-      return next;
-    });
-  }, []);
+  // Übernimmt Gebäudefelder und leitet abhängige Zustände neu ab (Bauteile, Maßnahmenauswahl).
+  // Gleiche Regeln für Formularänderung und PDF-Import.
+  const uebernehmeGebaeude = useCallback((felder) => {
+    const next = { ...gebaeude, ...felder };
+    const geaendert = Object.keys(felder);
+    setGebaeude(next);
+    let naechsteBauteile = bauteile;
+    if (geaendert.some(f => BAUTEILE_NEU_FELDER.includes(f))) {
+      naechsteBauteile = ableiteBauteile(next.baujahr, next.heizung_typ, next.lueftung, next.warmwasser);
+      setBauteile(naechsteBauteile);
+      setSanierungsstandProBauteil(sanierungsstandAusBauteile(naechsteBauteile));
+    }
+    if (geaendert.some(f => MASSNAHMEN_NEU_FELDER.includes(f))) {
+      setAktiveMassnahmen(getDefaultAktiveMassnahmen(next, bauteileAlsState(naechsteBauteile)));
+    }
+  }, [gebaeude, bauteile]);
+
+  const updateGebaeude = useCallback((field, value) => uebernehmeGebaeude({ [field]: value }), [uebernehmeGebaeude]);
 
   const updateIst = useCallback((field, value) => {
     setIst(prev => ({ ...prev, [field]: value }));
@@ -1906,39 +208,17 @@ export default function App() {
   }, []);
 
   const applyPreset = useCallback((id) => {
-    const p = PRESETS[id];
-    if (!p) return;
-    const neueBauteile = ableiteBauteile(p.gebaeude.baujahr, p.gebaeude.heizung_typ, p.gebaeude.lueftung, p.gebaeude.warmwasser);
-    if (p.bauteile_overrides) {
-      neueBauteile.forEach(b => { if (p.bauteile_overrides[b.id] !== undefined) b.note = p.bauteile_overrides[b.id]; });
-    }
-    const bs = {};
-    neueBauteile.forEach(b => { bs[b.id] = b.note; });
-    const vt = vorlauftemperaturFuer(p.gebaeude.waermeverteilung);
-    const fossil = /Heizöl|Erdgas|Fernwärme \(Gas/i.test(p.gebaeude.heizung_typ || "");
-    // intentional: uses raw MASSNAHMENPAKETE — preset defaults must be override-independent
-    const defaultAktive = MASSNAHMENPAKETE.flatMap(pkg =>
-      pkg.massnahmen.filter(m => {
-        // Never activate measures already present in the building.
-        if (massnahmeIstSchonVorhanden(m.id, p.gebaeude)) return false;
-        // M7: nur aktivieren wenn VT > 50 °C (Hochtemperatur-Heizkörper).
-        if (m.id === "M7") return vt > 50;
-        // M4: immer aktivieren bei fossiler Heizung — Heizungstausch ist sinnvoll.
-        if (m.id === "M4") return fossil;
-        // Alle anderen Maßnahmen: nach PE-Wirkungsschwelle (>= 3 kWh/m²a).
-        const imp = m.impact ? m.impact(bs) : { primaerenergie_delta: m.primaerenergie_delta || 0 };
-        return Math.abs(imp.primaerenergie_delta) >= 3;
-      }).map(m => m.id)
-    );
+    const s = erstelleStartzustand(id);
+    if (!s) return;
     setPresetId(id);
-    setGebaeude(p.gebaeude);
-    setIst(p.ist);
-    setBauteile(neueBauteile);
-    setAktiveMassnahmen(defaultAktive);
+    setGebaeude(s.gebaeude);
+    setIst(s.ist);
+    setBauteile(s.bauteile);
+    setAktiveMassnahmen(s.aktiveMassnahmen);
     setMassnahmenOverrides({});
     setWpVariante("auto");
     setExtraction(null);
-    setSanierungsstandProBauteil(sanierungsstandAusBauteile(neueBauteile));
+    setSanierungsstandProBauteil(sanierungsstandAusBauteile(s.bauteile));
   }, []);
   const applySanierungsstandFuerBauteil = useCallback((bauteilId, level) => {
     const stufen = SANIERUNGSSTAND_STUFEN[level];
@@ -1953,20 +233,14 @@ export default function App() {
 
   const handleUpload = useCallback((result) => {
     if (result.gebaeude && Object.keys(result.gebaeude).length > 0) {
-      setGebaeude(prev => {
-        const next = { ...prev, ...result.gebaeude };
-        const neueBauteile = ableiteBauteile(next.baujahr, next.heizung_typ, next.lueftung, next.warmwasser);
-        setBauteile(neueBauteile);
-        setSanierungsstandProBauteil(sanierungsstandAusBauteile(neueBauteile));
-        return next;
-      });
+      uebernehmeGebaeude(result.gebaeude);
     }
     if (result.ist && Object.keys(result.ist).length > 0) {
       setIst(prev => ({ ...prev, ...result.ist }));
     }
     setPresetId(null);
     setExtraction(result);
-  }, []);
+  }, [uebernehmeGebaeude]);
 
   const applyPendingExtraction = useCallback((selectedKeys) => {
     if (!pendingExtraction) return;
@@ -2056,74 +330,23 @@ export default function App() {
   }, []);
 
   // ─── Derived values ──
-  const bauteile_state = useMemo(() => {
-    const bs = {};
-    bauteile.forEach(b => { bs[b.id] = b.note; });
-    return bs;
-  }, [bauteile]);
+  const bauteile_state = useMemo(() => bauteileAlsState(bauteile), [bauteile]);
 
-  // When M7 (Heizkreisumbau) is active, treat verteilung as floor-heating level so M4's COP malus is lifted.
-  const effectiveBauteilState = useMemo(() => {
-    let state = { ...bauteile_state };
-    if (aktiveMassnahmen.includes("M7")) state = { ...state, verteilung: 7 };
-    const vt = vorlauftemperaturFuer(gebaeude.waermeverteilung);
-    const envAvg = ((state.waende||2) + (state.dach||2)) / 2;
-    let resolvedVariant = wpVariante === "auto" ? wpTypVarianteKey(vt, envAvg) : wpVariante;
-    // Oil buildings: don't auto-select hybrid (avoids creating new fossil infrastructure)
-    if (wpVariante === "auto" && resolvedVariant === "hybrid" && /Heizöl/i.test(gebaeude.heizung_typ || "")) {
-      resolvedVariant = "monoenergetisch";
-    }
-    return { ...state, wpVariante: resolvedVariant, vorlauftemp: vt };
-  }, [bauteile_state, aktiveMassnahmen, wpVariante, gebaeude.waermeverteilung, gebaeude.heizung_typ]);
-  const resolvedWpVariante = effectiveBauteilState.wpVariante || "monovalent";
+  // Effektiver Bauteilzustand (M7 → Flächenheizung) + WP-Variante — eine Quelle für Rechnung und UI.
+  const { state: effectiveBauteilState, wp } = useMemo(
+    () => erstelleEffektivenBauteilState({ bauteile_state, gebaeude, aktiveMassnahmen, wpWahl: wpVariante }),
+    [bauteile_state, gebaeude, aktiveMassnahmen, wpVariante]
+  );
+  const resolvedWpVariante = wp.key;
 
-  useEffect(() => {
-    const v = WP_VARIANTEN[resolvedWpVariante];
-    if (!v) return;
-    setMassnahmenOverrides(prev => ({
-      ...prev,
-      M4: { ...(prev.M4||{}), investition: v.investition, ohnehin_anteil: v.ohnehin_anteil, foerderquote: v.foerderquote },
-    }));
-  }, [resolvedWpVariante]);
-
-  const effectivePakete = useMemo(() => {
-    const allMerged = MASSNAHMENPAKETE.flatMap(p =>
-      p.massnahmen.map(m => ({ ...m, ...(massnahmenOverrides[m.id] || {}) }))
-    );
-    const scored = bewerteMassnahmen(allMerged, effectiveBauteilState, gebaeude);
-    const scoreMap = Object.fromEntries(scored.map(s => [s.id, s.score]));
-    const pakete = MASSNAHMENPAKETE.map(p => {
-      const sortedM = p.massnahmen
-        .map(m => ({ ...m, ...(massnahmenOverrides[m.id] || {}) }))
-        .sort((a, b) => (scoreMap[a.id] ?? Infinity) - (scoreMap[b.id] ?? Infinity));
-      const bestScore = sortedM.length ? Math.min(...sortedM.map(m => scoreMap[m.id] ?? Infinity)) : Infinity;
-      return { ...p, massnahmen: sortedM, _bestScore: bestScore };
-    });
-    const [p1, ...rest] = pakete; // P1 always first (Sofortmaßnahmen / hydraulischer Abgleich)
-    const ordered = [p1, ...rest.sort((a, b) => a._bestScore - b._bestScore)];
-    return ordered.map((p, idx) => ({ ...p, nummer: idx + 1 }));
-  }, [massnahmenOverrides, effectiveBauteilState, gebaeude]);
-
-  // M1 (Hydraulischer Abgleich) must be redone after WP install (BEG requirement).
-  // Move it from P1 to the END of P3 so the install sequence reads: M7 → M4 → M1.
-  const dynamicPakete = useMemo(() => {
-    const m4Active = aktiveMassnahmen.includes("M4");
-    if (!m4Active) return effectivePakete;
-
-    const p1 = effectivePakete.find(p => p.id === "P1");
-    const m1Measure = p1?.massnahmen.find(m => m.id === "M1");
-    if (!m1Measure) return effectivePakete;
-
-    const result = effectivePakete
-      .filter(p => p.id !== "P1")  // Remove P1 (its only measure M1 moves)
-      .map(p => {
-        if (p.id === "P3") {
-          return { ...p, massnahmen: [...p.massnahmen, { ...m1Measure, _isMovedAbgleich: true }] };
-        }
-        return p;
-      });
-    return result.map((p, idx) => ({ ...p, nummer: idx + 1 }));
-  }, [effectivePakete, aktiveMassnahmen]);
+  // Variante → Basiswerte (für den Editor); + Nutzer-Overrides, sortiert → effectivePakete.
+  const basisPakete = useMemo(() => erstelleBasisPakete(resolvedWpVariante), [resolvedWpVariante]);
+  const effectivePakete = useMemo(
+    () => erstelleEffektivePakete({ overrides: massnahmenOverrides, varianteKey: resolvedWpVariante, bauteile_state: effectiveBauteilState, gebaeude }),
+    [massnahmenOverrides, resolvedWpVariante, effectiveBauteilState, gebaeude]
+  );
+  // M1 wandert bei aktiver WP hinter die WP (P3) — Basis für Anzeige, Rechnung und Bericht.
+  const dynamicPakete = useMemo(() => ordneAbgleichNachWp(effectivePakete, aktiveMassnahmen), [effectivePakete, aktiveMassnahmen]);
 
   const aktivePakete = useMemo(() =>
     dynamicPakete.filter(p => p.massnahmen.some(m => aktiveMassnahmen.includes(m.id))).map(p => p.id),
@@ -2134,16 +357,11 @@ export default function App() {
     () => berechneHeizkosten(ist.endenergie, gebaeude.wohnflaeche, gebaeude.heizung_typ),
     [ist.endenergie, gebaeude.wohnflaeche, gebaeude.heizung_typ]
   );
-  const appIstTraeger = useMemo(() => traegerFuerHeizung(gebaeude.heizung_typ), [gebaeude.heizung_typ]);
-  const heizkostenWE = useMemo(() => gebaeude.wohneinheiten > 0 ? Math.round(heizkosten / gebaeude.wohneinheiten) : 0, [heizkosten, gebaeude.wohneinheiten]);
+  const hatWP = aktiveMassnahmen.includes("M4");
+  const hatPV = aktiveMassnahmen.includes("M6");
   const wartungCalcResult = useMemo(
-    () => berechneHeizungWartung({
-      traeger: appIstTraeger,
-      wpVariante: resolvedWpVariante,
-      hatWP: aktiveMassnahmen.includes("M4"),
-      hatPV: aktiveMassnahmen.includes("M6"),
-    }),
-    [appIstTraeger, resolvedWpVariante, aktiveMassnahmen]
+    () => berechneHeizungWartung({ heizungTyp: gebaeude.heizung_typ, wpVariante: resolvedWpVariante, hatWP, hatPV }),
+    [gebaeude.heizung_typ, resolvedWpVariante, hatWP, hatPV]
   );
   const wartungIstCalc  = wartungCalcResult.istJahr;
   const wartungZielCalc = wartungCalcResult.zielJahr;
@@ -2151,36 +369,42 @@ export default function App() {
   const gebaeudeWithState = useMemo(() => ({ ...gebaeude, bauteile_state: effectiveBauteilState }), [gebaeude, effectiveBauteilState]);
   const k = useMemo(() => berechneNachMassnahmen(aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete), [aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete]);
   const kumuliert = useMemo(() => berechneKumuliert(aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete), [aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete]);
-  const effHeizkostenIst  = wirtschaftlichkeitOverrides.heizkostenIst  ?? heizkosten;
-  const effHeizkostenZiel = wirtschaftlichkeitOverrides.heizkostenZiel ?? k.heizkosten_gesamt;
-  const effWartungIst  = wirtschaftlichkeitOverrides.wartungIst  ?? wartungIstCalc;
-  const effWartungZiel = wirtschaftlichkeitOverrides.wartungZiel ?? wartungZielCalc;
+
   const isFossil = /Heizöl|Erdgas|Fernwärme/i.test(gebaeude.heizung_typ || "");
   const DEFAULT_ESKAL_IST  = isFossil ? 2.5 : 2.0;
   const DEFAULT_ESKAL_ZIEL = 2.0;
   const effEskalIst  = wirtschaftlichkeitOverrides.eskalationIst  ?? DEFAULT_ESKAL_IST;
   const effEskalZiel = wirtschaftlichkeitOverrides.eskalationZiel ?? DEFAULT_ESKAL_ZIEL;
+  // Eine Wirtschaftlichkeitsrechnung für Sidebar, Drawer, Chart und Bericht (inkl. Overrides).
+  const wirtschaftlichkeit = useMemo(() => berechneWirtschaftlichkeit({
+    heizkostenIst:  wirtschaftlichkeitOverrides.heizkostenIst  ?? heizkosten,
+    heizkostenZiel: wirtschaftlichkeitOverrides.heizkostenZiel ?? k.heizkosten_gesamt,
+    wartungIst:     wirtschaftlichkeitOverrides.wartungIst     ?? wartungIstCalc,
+    wartungZiel:    wirtschaftlichkeitOverrides.wartungZiel    ?? wartungZielCalc,
+    pvErtrag: hatPV ? berechnePvErtrag(hatWP).gesamtEur : 0,
+    eigenanteil: k.eigenanteil,
+    eskalationIst: effEskalIst, eskalationZiel: effEskalZiel, jahre: 20,
+  }), [wirtschaftlichkeitOverrides, heizkosten, k, wartungIstCalc, wartungZielCalc, hatPV, hatWP, effEskalIst, effEskalZiel]);
+
   const bewertung = useMemo(() =>
     bewerteMassnahmen(effectivePakete.flatMap(p => p.massnahmen), effectiveBauteilState, gebaeude),
     [effectivePakete, effectiveBauteilState, gebaeude]
   );
   const empfohleneMassnahmen      = useMemo(() => bewertung.filter(m => m.empfohlen).map(m => m.id),      [bewertung]);
   const nichtEmpfohleneMassnahmen = useMemo(() => bewertung.filter(m => m.nichtEmpfohlen).map(m => m.id), [bewertung]);
-  const aktiveEmpfohleneMassnahmen = useMemo(() => empfohleneMassnahmen.filter(id => aktiveMassnahmen.includes(id)), [empfohleneMassnahmen, aktiveMassnahmen]);
   const reportSummaryPackages = useMemo(() => {
     return dynamicPakete.map((paket) => {
       const aktiveInPaket = paket.massnahmen.filter((m) => aktiveMassnahmen.includes(m.id));
       if (aktiveInPaket.length === 0) return null;
-      const investition = aktiveInPaket.reduce((sum, m) => sum + m.investition, 0);
-      const foerderung = aktiveInPaket.reduce((sum, m) => {
-        const netto = m.investition - (m.ohnehin_anteil ?? 0);
-        const klimaBonus = (m.id === "M4" && /Heizöl|Erdgas/i.test(gebaeude.heizung_typ || "")) ? 0.10 : 0;
-        const quote = m.foerderquote > 0 ? Math.min(m.foerderquote + BEG_BONUS.isfp_bonus + klimaBonus, 0.5) : 0;
-        return sum + netto * quote;
-      }, 0);
-      return { id: paket.id, nummer: paket.nummer, titel: paket.titel, farbe: paket.farbe, kosten: investition - foerderung, massnahmen_aktiv: aktiveInPaket.map(m => m.id), massnahmen_aktiv_obj: aktiveInPaket.map(m => ({ id: m.id, kurztitel: m.kurztitel || m.id })) };
+      const { eigenanteil } = summiereMassnahmen(aktiveInPaket, gebaeude);
+      return { id: paket.id, nummer: paket.nummer, titel: paket.titel, farbe: paket.farbe, kosten: eigenanteil, massnahmen_aktiv: aktiveInPaket.map(m => m.id), massnahmen_aktiv_obj: aktiveInPaket.map(m => ({ id: m.id, kurztitel: m.kurztitel || m.id })) };
     }).filter(Boolean);
   }, [dynamicPakete, aktiveMassnahmen, gebaeude]);
+  const warumCtx = useMemo(() => ({ bauteile_state: effectiveBauteilState, gebaeude, aktiveMassnahmen, wp }), [effectiveBauteilState, gebaeude, aktiveMassnahmen, wp]);
+  const ergebnisProps = {
+    effizienzklasse, k, ist, heizkosten, w: wirtschaftlichkeit, wohnflaeche: gebaeude.wohnflaeche,
+    reportSummaryPackages, empfohleneMassnahmen, nichtEmpfohleneMassnahmen, warumCtx, scrollToTab,
+  };
 
   const handleExport = () => {
     exportAsPDF();
@@ -2229,7 +453,7 @@ export default function App() {
       </header>
 
       {/* Print-Title (nur im PDF) */}
-      <ISFPPrintReport ist={ist} k={k} heizkostenIst={heizkosten} aktivePakete={aktivePakete} aktiveMassnahmen={aktiveMassnahmen} gebaeude={gebaeude} kumuliert={kumuliert} effectivePakete={dynamicPakete} resolvedWpVariante={resolvedWpVariante} />
+      <ISFPPrintReport ist={ist} k={k} heizkostenIst={heizkosten} aktivePakete={aktivePakete} aktiveMassnahmen={aktiveMassnahmen} gebaeude={gebaeude} kumuliert={kumuliert} effectivePakete={dynamicPakete} wirtschaftlichkeit={wirtschaftlichkeit} eskalationIst={effEskalIst} eskalationZiel={effEskalZiel} />
 
       <main className="mx-auto max-w-[1400px] print-hide px-5 md:px-10" style={{ paddingTop: 36, paddingBottom: 80 }}>
 
@@ -2301,7 +525,7 @@ export default function App() {
               <SelectInput label="Wärmeverteilung"   value={gebaeude.waermeverteilung || OPTIONS_WAERMEVERTEILUNG[0]} onChange={v => updateGebaeude("waermeverteilung", v)} options={OPTIONS_WAERMEVERTEILUNG}
                 tooltip="Bestimmt Vorlauftemperatur und empfohlene WP-Betriebsart (Monovalent / Monoenergetic / Bivalent)." />
               <div style={{ marginTop: 14 }}>
-                <button onClick={() => setSanierungsstandOffen(o => !o)}
+                <button onClick={() => setSanierungsstandOffen(o => !o)} aria-expanded={sanierungsstandOffen}
                   style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
                            width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                   <div style={{ fontSize: 11, color: "var(--sec)", fontFamily: "'Geist Mono', monospace",
@@ -2348,7 +572,7 @@ export default function App() {
               <NumberInput label="Endenergie"       value={ist.endenergie}     onChange={v => updateIst("endenergie", v)} unit="kWh/(m²·a)" min={0} max={600}
                 tooltip="Die dem Gebäude zugeführte Energie. Basis für Heizkosten-Berechnung." />
               <NumberInput label="Primärenergie"    value={ist.primaerenergie} onChange={v => updateIst("primaerenergie", v)} unit="kWh/(m²·a)" min={0} max={700}
-                tooltip="Berücksichtigt die 'Vorkette' (Energieträger-Gewinnung, Transport). Basis für die Effizienzklasse nach GEG §86." />
+                tooltip="Berücksichtigt die 'Vorkette' (Energieträger-Gewinnung, Transport). Basis für die Effizienzklasse in diesem Tool. Der Energieausweis nach GEG §86 klassifiziert dagegen nach Endenergie." />
               <NumberInput label="CO₂-Emissionen"   value={ist.co2}            onChange={v => updateIst("co2", v)} unit="kg/(m²·a)" min={0} max={200} step={0.1} />
               <div className="flex items-center justify-between gap-3" style={{ padding: "9px 0", borderBottom: "1px solid var(--div)", minHeight: 38 }}>
                 <span className="flex items-center gap-1.5" style={labelStyle}>
@@ -2356,7 +580,7 @@ export default function App() {
                   <span style={{ color: "var(--acc)" }} title="Automatisch berechnet"><SparkleIcon size={11} /></span>
                   <Tooltip content="Nach iSFP-Bewertungsschema aus Primärenergie (nicht Endenergie!)."><span style={{ color: "var(--acc)" }}><InfoIcon /></span></Tooltip>
                 </span>
-                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: EFFIZIENZ_FARBEN[effizienzklasse] || "#6B6259", color: ["C","D","E"].includes(effizienzklasse) ? "#1E1A15" : "#FFF", borderRadius: 3, fontSize: 15, fontWeight: 600, width: 34, height: 28, fontFamily: "'Fraunces', serif" }}>{effizienzklasse}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: EFFIZIENZ_FARBEN[effizienzklasse] || "#6B6259", color: eekTextFarbe(effizienzklasse), borderRadius: 3, fontSize: 15, fontWeight: 600, width: 34, height: 28, fontFamily: "'Fraunces', serif" }}>{effizienzklasse}</span>
               </div>
               <ComputedRow label="Heizkosten gesamt"   value={fmt(heizkosten)}   unit="€/a"
                 tooltip={`${ist.endenergie} kWh/m² × ${gebaeude.wohnflaeche} m² × ${preisFuerHeizung(gebaeude.heizung_typ).toFixed(2)} €/kWh (${traegerFuerHeizung(gebaeude.heizung_typ)}) = ${fmt(heizkosten)} €/Jahr`} />
@@ -2387,7 +611,7 @@ export default function App() {
               <div className="mb-10" style={{ position: "relative", display: "grid", gridTemplateColumns: `repeat(${totalCols}, 1fr)`, gap: 0 }}>
                 <div className="absolute" style={{ left: lineOffset, right: lineOffset, top: 24, height: 2, background: "linear-gradient(to right, #E30613, #F07D00, #7C3AED, #F6D400, #00843D, #2563EB)", pointerEvents: "none" }} />
                 <div className="flex flex-col items-center gap-1.5 relative">
-                  <div style={{ width: 46, height: 50, background: EFFIZIENZ_FARBEN[effizienzklasse] || "#6B6259", borderRadius: 3, border: "1.5px solid var(--txt)", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="font-serif text-[16px]" style={{ color: ["C","D","E"].includes(effizienzklasse) ? "#1E1A15" : "#FFF" }}>{effizienzklasse}</span></div>
+                  <div style={{ width: 46, height: 50, background: EFFIZIENZ_FARBEN[effizienzklasse] || "#6B6259", borderRadius: 3, border: "1.5px solid var(--txt)", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="font-serif text-[16px]" style={{ color: eekTextFarbe(effizienzklasse) }}>{effizienzklasse}</span></div>
                   <div className="text-[9px] tracking-[0.18em] uppercase text-center" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>Heute</div>
                   <div className="text-[10px]" style={{ color: "var(--body)" }}>Kl. {effizienzklasse}</div>
                 </div>
@@ -2403,7 +627,7 @@ export default function App() {
                 ))}
                 <div className="flex flex-col items-center gap-1.5 relative">
                   <div style={{ width: 46, height: 50, background: EFFIZIENZ_FARBEN[k.effizienzklasse] || "#00843D", borderRadius: 3, border: "1.5px solid var(--txt)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <span className="font-serif text-[16px]" style={{ color: ["B","C","D"].includes(k.effizienzklasse) ? "#1E1A15" : "#FFF" }}>{k.effizienzklasse}</span>
+                    <span className="font-serif text-[16px]" style={{ color: eekTextFarbe(k.effizienzklasse) }}>{k.effizienzklasse}</span>
                   </div>
                   <div className="text-[9px] tracking-[0.18em] uppercase text-center" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>Ziel</div>
                   <div className="text-[10px]" style={{ color: "var(--body)" }}>Kl. {k.effizienzklasse}</div>
@@ -2421,8 +645,7 @@ export default function App() {
                 nichtEmpfohleneMassnahmen={nichtEmpfohleneMassnahmen}
                 gebaeude={gebaeude}
                 bauteile_state={effectiveBauteilState}
-                wpVariante={wpVariante}
-                resolvedWpVariante={resolvedWpVariante}
+                wp={wp}
                 onWpVarianteChange={setWpVariante} />
             ))}
           </div>
@@ -2458,121 +681,11 @@ export default function App() {
           <EnergieVerlaufChart ist={ist} kumuliert={kumuliert} heizkosten={heizkosten} />
 
           {/* 20-Jahr-Kostenvergleich */}
-          {effHeizkostenIst > 0 && effHeizkostenZiel > 0 && (() => {
-            const H = 20;
-            const hasPV_20 = aktiveMassnahmen.includes("M6");
-            const hatWP_20 = aktiveMassnahmen.includes("M4");
-            const pvRevenue20J = hasPV_20 ? berechnePvErtrag(hatWP_20).gesamtEur * H : 0;
-            // Compound sum: annual × ((1+r)^n − 1) / r; flat for r=0
-            const sumGrowth = (annual, rPct, n) =>
-              rPct === 0 ? annual * n
-                         : annual * ((Math.pow(1 + rPct / 100, n) - 1) / (rPct / 100));
-            const ohneEur = Math.round(sumGrowth(effHeizkostenIst + effWartungIst, effEskalIst, H));
-            const mitEur  = Math.round(k.eigenanteil
-                              + sumGrowth(effHeizkostenZiel + effWartungZiel, effEskalZiel, H)
-                              - pvRevenue20J);
-            const delta    = mitEur - ohneEur;
-            const annualNetSaving = (effHeizkostenIst + effWartungIst) - (effHeizkostenZiel + effWartungZiel) + pvRevenue20J / H;
-            const breakevenJ = annualNetSaving > 0
-              ? Math.round(k.eigenanteil / annualNetSaving) : null;
-            const eskalHeader = (effEskalIst === 0 && effEskalZiel === 0)
-              ? "statische Preise"
-              : `IST +${Number(effEskalIst).toFixed(1)} % / ZIEL +${Number(effEskalZiel).toFixed(1)} %/J`;
-            // Break-even chart vars
-            const pvAnnual    = pvRevenue20J / H;
-            const annual_ist  = effHeizkostenIst  + effWartungIst;
-            const annual_ziel = effHeizkostenZiel + effWartungZiel;
-            const cumIst  = t => sumGrowth(annual_ist,  effEskalIst,  t);
-            const cumZiel = t => k.eigenanteil + sumGrowth(annual_ziel, effEskalZiel, t) - pvAnnual * t;
-            const maxT = breakevenJ ? Math.min(Math.ceil(breakevenJ * 1.35), 40) : 30;
-            const CW = 560, CH = 200;
-            const CP = { top: 18, right: 18, bottom: 34, left: 52 };
-            const cpw = CW - CP.left - CP.right, cph = CH - CP.top - CP.bottom;
-            const pts_t = Array.from({ length: maxT + 1 }, (_, t) => t);
-            const yMax_c = Math.ceil(Math.max(...pts_t.flatMap(t => [cumIst(t), cumZiel(t)])) / 25000) * 25000 || 1;
-            const toXc = t => CP.left + cpw * t / maxT;
-            const toYc = v => CP.top + cph * (1 - Math.max(v, 0) / yMax_c);
-            const fmtK = v => `${Math.round(v / 1000)}k`;
-            const istPts  = pts_t.map(t => `${toXc(t)},${toYc(cumIst(t))}`).join(' ');
-            const zielPts = pts_t.map(t => `${toXc(t)},${toYc(cumZiel(t))}`).join(' ');
-            const yStep_c = yMax_c >= 200000 ? 50000 : 25000;
-            const yLines_c = Array.from({ length: Math.ceil(yMax_c / yStep_c) }, (_, i) => (i + 1) * yStep_c).filter(v => v <= yMax_c);
-            const xTicks_c = [5, 10, 15, 20, 25, 30, 35, 40].filter(t => t > 0 && t <= maxT);
-            const bx = breakevenJ && breakevenJ <= maxT ? toXc(breakevenJ) : null;
-            const by_cross = bx ? toYc(cumIst(breakevenJ)) : null;
-            return (
-              <div style={{ marginTop: 8, marginBottom: 32 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase",
-                                fontFamily: "var(--mono)", color: "var(--acc)" }}>
-                    20-Jahr-Kostenvergleich · {eskalHeader}
-                  </div>
-                  <Tooltip content={<span>Nur laufende Kosten. Nicht enthalten: Heizungsersatz (ca. 12–18 T€), GEG-Pflichten bei Eigentümerwechsel (§71 GEG: 65 % EE), EEK-Wertverlust (F/G: bis −10 % Marktwert).</span>}>
-                    <span style={{ color: "var(--acc)", cursor: "help" }}><InfoIcon size={11} /></span>
-                  </Tooltip>
-                </div>
-                <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "14px 18px" }}>
-                  <svg viewBox={`0 0 ${CW} ${CH}`} style={{ width: "100%", display: "block", aspectRatio: `${CW}/${CH}` }}>
-                    {/* Y grid */}
-                    <text x={CP.left - 5} y={toYc(0) + 3.5} textAnchor="end" fontSize={8.5} fill="var(--sec)" fontFamily="'Geist Mono', monospace">0</text>
-                    {yLines_c.map(v => (
-                      <g key={v}>
-                        <line x1={CP.left} y1={toYc(v)} x2={CP.left + cpw} y2={toYc(v)} stroke="var(--div)" strokeWidth={0.75} strokeDasharray="4 3" />
-                        <text x={CP.left - 5} y={toYc(v) + 3.5} textAnchor="end" fontSize={8.5} fill="var(--sec)" fontFamily="'Geist Mono', monospace">{fmtK(v)}</text>
-                      </g>
-                    ))}
-                    {/* X baseline */}
-                    <line x1={CP.left} y1={CP.top + cph} x2={CP.left + cpw} y2={CP.top + cph} stroke="var(--bdr)" strokeWidth={0.75} />
-                    {/* X ticks */}
-                    {xTicks_c.map(t => (
-                      <g key={t}>
-                        <line x1={toXc(t)} y1={CP.top + cph} x2={toXc(t)} y2={CP.top + cph + 3} stroke="var(--sec)" strokeWidth={0.75} />
-                        <text x={toXc(t)} y={CP.top + cph + 13} textAnchor="middle" fontSize={8.5} fill="var(--sec)" fontFamily="'Geist Mono', monospace">{t}</text>
-                      </g>
-                    ))}
-                    <text x={CP.left + cpw} y={CP.top + cph + 13} textAnchor="end" fontSize={8} fill="var(--sec)" fontFamily="'Geist Mono', monospace">J</text>
-                    {/* Year-20 reference */}
-                    <line x1={toXc(20)} y1={CP.top} x2={toXc(20)} y2={CP.top + cph} stroke="var(--acc)" strokeWidth={0.75} strokeDasharray="3 3" opacity={0.45} />
-                    <text x={toXc(20)} y={CP.top - 5} textAnchor="middle" fontSize={8} fill="var(--acc)" fontFamily="'Geist Mono', monospace" opacity={0.7}>20 J</text>
-                    {/* Lines */}
-                    <polyline points={istPts}  fill="none" stroke="var(--neg)" strokeWidth={1.75} strokeLinejoin="round" />
-                    <polyline points={zielPts} fill="none" stroke="var(--pos)" strokeWidth={1.75} strokeLinejoin="round" />
-                    {/* Crossover */}
-                    {bx && by_cross && (
-                      <>
-                        <circle cx={bx} cy={by_cross} r={3.5} fill="var(--acc)" />
-                        <text x={bx + 6} y={by_cross - 4} fontSize={8.5} fill="var(--acc)" fontFamily="'Geist Mono', monospace" fontWeight={600}>~{breakevenJ} J</text>
-                      </>
-                    )}
-                  </svg>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 10, fontFamily: "var(--mono)", color: "var(--sec)", marginTop: 8 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <svg width={14} height={3} style={{ flexShrink: 0 }}><line x1={0} y1={1.5} x2={14} y2={1.5} stroke="var(--neg)" strokeWidth={2} /></svg>
-                      Ohne Sanierung · {fmtEur(ohneEur)} nach 20 J
-                    </span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <svg width={14} height={3} style={{ flexShrink: 0 }}><line x1={0} y1={1.5} x2={14} y2={1.5} stroke="var(--pos)" strokeWidth={2} /></svg>
-                      Mit Sanierung · {fmtEur(mitEur)} nach 20 J
-                    </span>
-                    {breakevenJ && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--acc)", display: "inline-block", flexShrink: 0 }} />
-                        Amortisation ~{breakevenJ} J
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--sec)", lineHeight: 1.5, marginTop: 6 }}>
-                  {delta < 0
-                    ? `Sanierung spart über ${H} Jahre ${fmtEur(Math.abs(delta))}.`
-                    : `Investitionsüberhang nach ${H} Jahren: ${fmtEur(delta)}. Nicht-sanieren bedeutet höhere laufende Kosten und ggf. spätere Pflichtinvestitionen.`}
-                  {breakevenJ && ` Amortisation bei ~${breakevenJ} Jahren.`}
-                </div>
-              </div>
-            );
-          })()}
+          {wirtschaftlichkeit.laufendIst > 0 && wirtschaftlichkeit.laufendZiel > 0 && (
+            <KostenvergleichChart w={wirtschaftlichkeit} eskalationIst={effEskalIst} eskalationZiel={effEskalZiel} />
+          )}
 
-          <MassnahmenEditor overrides={massnahmenOverrides} onUpdate={updateMassnahme} onReset={resetMassnahme}
+          <MassnahmenEditor basisPakete={basisPakete} overrides={massnahmenOverrides} onUpdate={updateMassnahme} onReset={resetMassnahme}
             wirtschaftlichkeitOverrides={wirtschaftlichkeitOverrides}
             heizkostenIstCalc={heizkosten}
             heizkostenZielCalc={k.heizkosten_gesamt}
@@ -2583,116 +696,7 @@ export default function App() {
             onUpdateWirtschaftlichkeit={updateWirtschaftlichkeit}
             onResetWirtschaftlichkeit={resetWirtschaftlichkeit} />
 
-          <div className="mt-10 print-hide" style={{ border: "1.25px solid var(--bdr)", borderRadius: 3, background: "var(--surface2)" }}>
-            <button onClick={() => setHintergruendeOffen(o => !o)}
-              style={{ width: "100%", padding: "14px 20px", background: "transparent", border: "none", cursor: "pointer",
-                       display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div className="text-[11px] tracking-[0.22em] uppercase" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
-                Hintergründe &amp; Annahmen
-              </div>
-              <span style={{ fontSize: 11, color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>
-                {hintergruendeOffen ? "▲ Schließen" : "▼ Details"}
-              </span>
-            </button>
-            {hintergruendeOffen && (
-              <div style={{ borderTop: "1.25px solid var(--bdr)", padding: "16px 20px" }}>
-                {/* Förderannahmen */}
-                <div style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase",
-                              fontFamily: "'Geist Mono', monospace", color: "var(--acc)", marginBottom: 10 }}>
-                  Förderannahmen
-                  {k.invest_gesamt > 0 && (
-                    <span style={{ marginLeft: 10, color: "var(--pos)", fontWeight: 600 }}>
-                      {Math.round(k.foerderung_gesamt / k.invest_gesamt * 100)} %
-                    </span>
-                  )}
-                </div>
-                <div className="text-[12px] leading-relaxed mb-4" style={{ color: "var(--sec)" }}>
-                  Diese Vorabschätzung nutzt vereinfachte Förderannahmen je Maßnahmentyp. Die konkrete Förderung wird in der Maßnahmenübersicht und Kostenaufstellung je Paket berücksichtigt.
-                </div>
-                <div className="space-y-2 mb-4">
-                  {[
-                    ["Gebäudehülle · Fenster · Optimierung", "BEG EM + iSFP-Bonus (Demo-Logik)"],
-                    ["Heizungstausch · Wärmepumpe", "vereinfachte KfW-/BEG-Annahme"],
-                    ["PV · Eigenstrom", "kein Direktzuschuss — Ertrag aus Eigenverbrauch (0,31 €/kWh) + Einspeisung (0,082 €/kWh EEG 2024)"],
-                  ].map(([cat, note], i) => (
-                    <div key={i} style={{ paddingBottom: 8, borderBottom: "1px solid var(--bdr)" }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 500, color: "var(--txt)", marginBottom: 1 }}>{cat}</div>
-                      <div style={{ fontSize: 11, color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>{note}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-baseline justify-between gap-3 mb-3">
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--txt)" }}>Förderanteil (von Gesamtinvestition)</span>
-                  <span style={{ fontSize: 20, fontFamily: "'Fraunces', serif", color: "var(--pos)", fontVariantNumeric: "tabular-nums" }}>
-                    {k.invest_gesamt > 0
-                      ? `${Math.round(k.foerderung_gesamt / k.invest_gesamt * 100)} %`
-                      : "—"}
-                  </span>
-                </div>
-                <div style={{ fontSize: 10.5, color: "var(--sec)", lineHeight: 1.5 }}>
-                  Keine Förderzusage. Förderdeckel, Eigentümerstatus, Bonuskombinationen, technische Mindestanforderungen und Antragspflichten müssen im echten Prozess geprüft werden.
-                </div>
-
-                {/* Wie funktioniert dieser Rechner */}
-                {(() => {
-                  const Sub = ({ title, children }) => (
-                    <div style={{ marginBottom: 22 }}>
-                      <div className="text-[10px] tracking-[0.2em] uppercase mb-2" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>{title}</div>
-                      <div style={{ fontSize: 13.5, color: "var(--body)", lineHeight: 1.65 }}>{children}</div>
-                    </div>
-                  );
-                  return (
-                    <div style={{ marginTop: 20, borderTop: "1px solid var(--div)", paddingTop: 16 }}>
-                      <div style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase",
-                                    fontFamily: "'Geist Mono', monospace", color: "var(--acc)", marginBottom: 16 }}>
-                        Wie funktioniert dieser Rechner?
-                      </div>
-                      <Sub title="Was macht dieses Tool?">
-                        Sie geben Gebäudedaten ein — Baujahr, Heizung, Wohnfläche, Bauteil-Zustand — und erhalten einen priorisierten Sanierungsfahrplan mit Energiekennzahlen, Kosten und BEG-Förderung. Das Tool ist kein BAFA-zertifizierter iSFP, sondern ein Demonstrator auf Basis realer Marktdaten 2026.
-                      </Sub>
-                      <Sub title="Woher kommen die Energiezahlen?">
-                        <b>Endenergie</b> ist die dem Gebäude zugeführte Energie (Öl, Gas, Strom). Die Maßnahmen schätzen zuerst die Endenergie-Änderung. <b>Primärenergie</b> = Endenergie × Primärenergiefaktor nach GEG Anlage 4; <b>CO₂</b> = Endenergie × Emissionsfaktor nach GEG Anlage 9. Die <b>Effizienzklasse A+–H</b> basiert auf der Primärenergie nach GEG §86. Fernwärme nutzt Demo-Fallbackwerte, weil reale Energieausweise netzspezifische Faktoren verwenden.
-                        <br /><br />
-                        Für den Zielzustand werden PE und CO₂ nach jedem Paket neu aus der verbleibenden Endenergie und dem dann aktiven Energieträger berechnet. Bei Wärmepumpen-Szenarien wechselt der Ziel-Energieträger auf WP-Strom; bei Fernwärme bleiben die Werte bewusst als Demo-Fallback markiert, weil Netzbetreiber-Faktoren im echten Energieausweis abweichen können. Die kompakten CO₂-Hinweise an einzelnen Maßnahmen zeigen nur die grobe Richtung, nicht die verbindliche Endsumme.
-                      </Sub>
-                      <Sub title="Wie wird die Reihenfolge der Maßnahmen bestimmt?">
-                        Jede Maßnahme erhält eine Punktzahl: Netto-Investition ÷ eingesparte Primärenergie [€/kWh PE]. Niedrig = wirtschaftlich sinnvoll. Die Pakete werden nach dieser Punktzahl sortiert und aktualisieren sich automatisch, wenn Sie Gebäudedaten oder Bauteil-Stufen ändern. Die <b>★ Empfohlen</b>-Markierung zeigt Maßnahmen mit Score unter 10,5 €/kWh PE — besonders wirtschaftlich für Ihr Gebäude. <b>✕ Nicht empfohlen</b> kennzeichnet Maßnahmen mit Score über 20 €/kWh PE oder ohne messbaren Primärenergie-Effekt.
-                      </Sub>
-                      <Sub title="Wie werden die Förderungen berechnet?">
-                        <b>BEG EM (BAFA)</b>: 15 % Grundförderung auf den energetisch bedingten Mehraufwand (Investition minus Sowieso-Kosten). <b>Wärmepumpe (KfW 458)</b>: bis zu 50 % (30 % Grundförderung + 20 % Klimageschwindigkeits-Bonus möglich). <b>iSFP-Bonus</b>: +5 % auf alle Maßnahmen, die im Fahrplan hinterlegt sind — das ist der Kern des iSFP-Verfahrens.
-                      </Sub>
-                      <Sub title="Beispielrechnung — EFH Nachkriegszeit 1965">
-                        <pre style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11.5, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--body)", margin: 0 }}>{`Haus: EFH 1965 · 145 m² · Heizöl · Klasse G  (PE 236 kWh/(m²·a))
-IST-Heizkosten:  215 kWh/m² × 145 m² × 0,11 €/kWh (Heizöl) = 3.429 €/Jahr
-
-Fahrplan Schritt 1 — Hydraulischer Abgleich (Heute):
-  Investition 1.800 €  ·  Förderung BEG EM ca. 270 €  ·  PE −14 kWh/(m²·a)
-
-Fahrplan Schritt 3 — Wärmepumpe (nach Dach- & Fensterdämmung):
-  Endenergie sinkt auf 68 kWh/(m²·a) — Strom statt Öl (COP ~2,5)
-  ZIEL-Heizkosten: 68 × 145 m² × 0,22 €/kWh (WP-Sondertarif) = 2.170 €/Jahr (−37 %)
-  Investition 32.000 €  ·  Förderung KfW 458 bis 13.500 €
-
-Gesamtfahrplan — alle Maßnahmen:
-  Primärenergie ZIEL  62 kWh/(m²·a)  →  Klasse B
-  CO₂:  63 → 19 kg/(m²·a)  (−70 %)
-  Investition 142.800 €  ·  Förderung ca. 25.950 €`}</pre>
-                      </Sub>
-                      <Sub title="Wie wird die Amortisation berechnet?">
-                        <b>Gesamt-Amortisation</b> (Sidebar-KPI): Eigenanteil ÷ (IST-Heizkosten − ZIEL-Heizkosten) bei statischen Energiepreisen. Bei einer vollständigen Sanierung mit Wärmepumpe liegt die rechnerische Amortisation oft bei 30–50 Jahren — das ist ehrlich. Mit realistischer Energiepreissteigerung von 2–3 %/Jahr halbiert sich dieser Wert typisch auf 15–25 Jahre. <b>PV-Ertrag</b>: angenommen 10 kWp · 950 kWh/kWp. Eigenverbrauchsquote 35 % (ohne WP) bzw. 60 % (mit WP + Speicher). Eigenverbrauch bewertet zu 0,31 €/kWh (Haushaltstarif), Einspeisung zu 0,082 €/kWh (EEG 2024). Daraus ergibt sich ein Jahresertrag von ca. 1.330–2.020 €, Amortisation ~9–14 Jahre.
-                      </Sub>
-                      <Sub title="Wie wird die 20-Jahr-Bilanz gebildet?">
-                        „Ohne Sanierung": 20 × aktuelle Heizkosten (IST) inkl. Wartung, mit Energiepreis-Eskalation. „Mit Sanierung": Eigenanteil + 20 × ZIEL-Betriebskosten, ebenfalls mit Eskalation. Die Eskalationsrate ist in den Overrides oben anpassbar — Standard: IST fossil 2,5 %/J, ZIEL Strom 2,0 %/J.
-                      </Sub>
-                      <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--sec)", fontStyle: "italic", lineHeight: 1.6 }}>
-                        Alle Werte sind Richtwerte auf Basis realistischer Marktpreise und BEG-Konditionen Stand Mai 2026. Dieser Rechner ist ein Demonstrator und ersetzt keine zertifizierte iSFP-Beratung nach BAFA-Anforderungen.
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
+          <Hintergruende k={k} />
         </Section>
 
         </div>{/* end left column */}
@@ -2703,207 +707,26 @@ Gesamtfahrplan — alle Maßnahmen:
           <div className="text-[9.5px] tracking-[0.18em] uppercase mb-3"
                style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>Ergebnis · Live</div>
 
-          {/* EEK comparison */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <div style={{ flex: 1, background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3,
-                          padding: "8px 10px", textAlign: "center" }}>
-              <div style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--sec)",
-                            fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 6 }}>Heute</div>
-              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                            width: 36, height: 36, background: EFFIZIENZ_FARBEN[effizienzklasse] || "#6B6259",
-                            borderRadius: 3, fontSize: 18, fontWeight: 600, fontFamily: "'Fraunces', serif",
-                            color: ["C","D","E"].includes(effizienzklasse) ? "#1E1A15" : "#FFF" }}>{effizienzklasse}</div>
-            </div>
-            <span style={{ fontSize: 22, color: "var(--acc)", flexShrink: 0 }}>→</span>
-            <div style={{ flex: 1, background: EFFIZIENZ_FARBEN[k.effizienzklasse] || "#00843D",
-                          border: "1.25px solid var(--txt)", borderRadius: 3, padding: "8px 10px", textAlign: "center" }}>
-              <div style={{ fontSize: 9, letterSpacing: "0.2em", fontFamily: "'Geist Mono', monospace",
-                            textTransform: "uppercase", marginBottom: 6,
-                            color: ["B","C","D"].includes(k.effizienzklasse) ? "rgba(30,26,21,0.6)" : "rgba(248,245,239,0.7)" }}>Ziel</div>
-              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                            width: 36, height: 36, background: "var(--bg)",
-                            borderRadius: 3, fontSize: 18, fontWeight: 600, fontFamily: "'Fraunces', serif",
-                            color: EFFIZIENZ_FARBEN[k.effizienzklasse] || "#00843D" }}>{k.effizienzklasse}</div>
-            </div>
-          </div>
-
-          {/* Paket-Übersicht */}
-          <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "10px 12px", marginBottom: 10 }}>
-            <div className="text-[10.5px] tracking-[0.18em] uppercase mb-2" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>Paket-Übersicht</div>
-            {reportSummaryPackages.length === 0 ? (
-              <div style={{ fontSize: 12, color: "var(--sec)" }}>Noch keine Maßnahmen aktiv.</div>
-            ) : reportSummaryPackages.map((pkg, idx) => (
-              <div key={pkg.id} style={{ padding: "8px 0", borderBottom: idx < reportSummaryPackages.length - 1 ? "1px solid var(--div)" : "none" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: PAKET_FARBEN[pkg.farbe]?.bg || "#6B6259", display: "inline-block", flexShrink: 0 }} />
-                    <span style={{ fontSize: 12.5, color: "var(--txt)", fontWeight: 500 }}>Paket {pkg.nummer} · {pkg.titel}</span>
-                  </div>
-                  <span style={{ fontSize: 10.5, fontFamily: "'Geist Mono', monospace", flexShrink: 0 }}>{fmtEur(pkg.kosten)}</span>
-                </div>
-                <div style={{ paddingLeft: 16 }}>
-                  {pkg.massnahmen_aktiv_obj.map(m => {
-                    const istEmpf = empfohleneMassnahmen.includes(m.id);
-                    const istNichtEmpf = nichtEmpfohleneMassnahmen.includes(m.id) && !istEmpf;
-                    const warum = getWarum(m.id, {
-                      bauteile_state: effectiveBauteilState, gebaeude, aktiveMassnahmen,
-                      empfohlen: istEmpf, nichtEmpfohlen: istNichtEmpf,
-                    });
-                    return (
-                      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, minHeight: 22, marginBottom: 1 }}>
-                        <span
-                          onClick={() => scrollToTab(`paket-${pkg.id}`)}
-                          style={{ fontSize: 11, color: "var(--body)", cursor: "pointer", flex: 1 }}
-                          onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"}
-                          onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}
-                        >{m.kurztitel}</span>
-                        {istEmpf && (
-                          <Tooltip content={<span><b>Warum empfohlen:</b><br />{warum.grund}</span>}>
-                            <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#F6D400", color: "#1E1A15", fontFamily: "'Geist Mono', monospace", fontWeight: 600, flexShrink: 0 }}>★</span>
-                          </Tooltip>
-                        )}
-                        {istNichtEmpf && (
-                          <Tooltip content={<span><b>Wirtschaftlichkeit gering:</b><br />{warum.jetzt}</span>}>
-                            <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "var(--div)", color: "var(--sec)", fontFamily: "'Geist Mono', monospace", fontWeight: 600, flexShrink: 0 }}>✕</span>
-                          </Tooltip>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* KPI Scorecards 2×2 */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-            {[
-              { label: "Primärenergie", istVal: ist.primaerenergie, zielVal: k.primaerenergie, unit: "kWh/(m²·a)", posColor: "var(--pos)" },
-              { label: "Endenergie",    istVal: ist.endenergie,     zielVal: k.endenergie,     unit: "kWh/(m²·a)", posColor: "var(--pos)" },
-              { label: "CO₂",          istVal: ist.co2,            zielVal: k.co2,            unit: "kg/(m²·a)",  posColor: "var(--pos)" },
-              { label: "Heizkosten",   istVal: heizkosten,          zielVal: k.heizkosten_gesamt, unit: "€/a",    posColor: "var(--gold)" },
-            ].map(({ label, istVal, zielVal, unit, posColor }) => {
-              const pct = istVal > 0 ? Math.round(Math.abs(zielVal - istVal) / istVal * 100) : 0;
-              const down = zielVal < istVal;
-              const fill = istVal > 0 ? Math.round(Math.min(zielVal / istVal, 1) * 100) : 0;
-              const fmtV = n => unit === "€/a" ? fmtEur(n) : new Intl.NumberFormat("de-DE").format(Math.round(n));
-              const barColor = down ? posColor : "var(--neg)";
-              return (
-                <div key={label} style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)",
-                                          borderRadius: 3, padding: "10px 11px" }}>
-                  <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.14em",
-                                textTransform: "uppercase", color: "var(--sec)", marginBottom: 3 }}>{label}</div>
-                  <div style={{ fontSize: 19, fontWeight: 600, fontFamily: "'Geist Mono', monospace",
-                                color: down ? posColor : "var(--neg)", marginBottom: 4, lineHeight: 1 }}>
-                    {down ? "−" : "+"}{pct}%
-                  </div>
-                  <div style={{ height: 4, background: "var(--div)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-                    <div style={{ height: "100%", width: `${fill}%`, background: barColor, borderRadius: 2, transition: "width 0.3s" }} />
-                  </div>
-                  <div style={{ fontSize: 8.5, fontFamily: "'Geist Mono', monospace", color: "var(--sec)", lineHeight: 1.3 }}>
-                    {fmtV(istVal)} → {fmtV(zielVal)} {unit}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Amortisation + PE-Ausbeute — sidebar */}
-          {k.eigenanteil > 0 && (() => {
-            const hatWP = aktiveMassnahmen.includes("M4");
-            const hasPV = aktiveMassnahmen.includes("M6");
-            const pvRevenue = hasPV ? berechnePvErtrag(hatWP).gesamtEur : 0;
-            const annualSaving = Math.round(effHeizkostenIst - effHeizkostenZiel + pvRevenue + effWartungIst - effWartungZiel);
-            const amortYears = annualSaving > 0 ? Math.round(k.eigenanteil / annualSaving) : null;
-            const peSavedTotal = Math.round((ist.primaerenergie - k.primaerenergie) * (gebaeude.wohnflaeche ?? 0));
-            const peAusbeute = peSavedTotal > 0 ? Math.round(peSavedTotal / k.eigenanteil * 1000) : null;
-            if (!amortYears && !peAusbeute) return null;
-            return (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-                {amortYears ? (
-                  <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)",
-                                borderRadius: 3, padding: "10px 11px" }}>
-                    <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.14em",
-                                  textTransform: "uppercase", color: "var(--sec)", marginBottom: 3 }}>Amortisation</div>
-                    <div style={{ fontSize: 19, fontWeight: 600, fontFamily: "'Geist Mono', monospace",
-                                  color: "var(--gold)", marginBottom: 4, lineHeight: 1 }}>~{amortYears} J</div>
-                    <div style={{ height: 4, background: "var(--div)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-                      <div style={{ height: "100%", width: `${Math.min(Math.round(20 / amortYears * 100), 100)}%`,
-                                    background: amortYears <= 20 ? "var(--pos)" : "var(--gold)", borderRadius: 2 }} />
-                    </div>
-                    <div style={{ fontSize: 8.5, fontFamily: "'Geist Mono', monospace", color: "var(--sec)", lineHeight: 1.3 }}>
-                      {fmtEur(k.eigenanteil)} / {fmtEur(annualSaving)}/J
-                    </div>
-                  </div>
-                ) : <div />}
-                {peAusbeute ? (
-                  <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)",
-                                borderRadius: 3, padding: "10px 11px" }}>
-                    <div style={{ fontSize: 8, fontFamily: "'Geist Mono', monospace", letterSpacing: "0.14em",
-                                  textTransform: "uppercase", color: "var(--sec)", marginBottom: 3 }}>PE-Ausbeute</div>
-                    <div style={{ fontSize: 19, fontWeight: 600, fontFamily: "'Geist Mono', monospace",
-                                  color: "var(--pos)", marginBottom: 8, lineHeight: 1 }}>{peAusbeute}</div>
-                    <div style={{ fontSize: 8.5, fontFamily: "'Geist Mono', monospace", color: "var(--sec)", lineHeight: 1.3 }}>
-                      kWh PE / 1.000 € · {new Intl.NumberFormat("de-DE").format(peSavedTotal)} kWh/a
-                    </div>
-                  </div>
-                ) : <div />}
-              </div>
-            );
-          })()}
-
-          {/* Investment summary */}
-          <div style={{ background: "var(--bg)", border: "1px solid var(--bdr)",
-                        borderRadius: 3, padding: "10px 12px", fontSize: 12 }}>
-            <div className="flex justify-between mb-1.5" style={{ color: "var(--body)" }}>
-              <span>Investition</span>
-              <span style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(k.invest_gesamt)}</span>
-            </div>
-            <div className="flex justify-between mb-1.5" style={{ color: "var(--pos)" }}>
-              <span>Förderung</span>
-              <span style={{ fontFamily: "'Geist Mono', monospace" }}>−{fmtEur(k.foerderung_gesamt)}</span>
-            </div>
-            <div className="flex justify-between font-medium"
-                 style={{ color: "var(--txt)", marginTop: 4, paddingTop: 6, borderTop: "1px solid var(--bdr)" }}>
-              <span>Eigenanteil</span>
-              <span style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(k.eigenanteil)}</span>
-            </div>
-          </div>
-
+          <ErgebnisUebersicht {...ergebnisProps} />
         </aside>
 
         </div>{/* end 2-col grid */}
 
       </main>
 
-      <MobileResultsDrawer
-        effizienzklasse={effizienzklasse}
-        k={k}
-        ist={ist}
-        heizkosten={heizkosten}
-        aktiveEmpfohleneMassnahmen={aktiveEmpfohleneMassnahmen}
-        empfohleneMassnahmen={empfohleneMassnahmen}
-        nichtEmpfohleneMassnahmen={nichtEmpfohleneMassnahmen}
-        reportSummaryPackages={reportSummaryPackages}
-        scrollToTab={scrollToTab}
-        effectiveBauteilState={effectiveBauteilState}
-        gebaeude={gebaeude}
-        aktiveMassnahmen={aktiveMassnahmen}
-        resolvedWpVariante={resolvedWpVariante}
-        wirtschaftlichkeitOverrides={wirtschaftlichkeitOverrides}
-      />
+      <MobileResultsDrawer {...ergebnisProps} />
 
       <footer className="print-hide px-5 md:px-10" style={{ borderTop: "1px solid var(--bdr)", paddingTop: 32, paddingBottom: 32, marginTop: 40 }}>
         <div className="mx-auto max-w-[1400px] flex items-center justify-between flex-wrap gap-4 text-[11.5px]"
              style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace", letterSpacing: "0.05em" }}>
           <span>Demonstrator · keine rechtsverbindliche Energieberatung</span>
-          <span>Stand Mai 2026 · BEG + GEG · TABULA-Baseline</span>
+          <span>Stand {DATENSTAND} · BEG + GEG · TABULA-Baseline</span>
         </div>
       </footer>
 
       {/* Print-Footer */}
       <div className="print-only" style={{ padding: "24px 40px", borderTop: "1px solid var(--bdr)", fontSize: 10, color: "var(--sec)", fontFamily: "'Geist Mono', monospace", textAlign: "center" }}>
-        Demonstrator — kein BAFA-iSFP. Stand Mai 2026.
+        Demonstrator — kein BAFA-iSFP. Stand {DATENSTAND}.
       </div>
     </div>
   );

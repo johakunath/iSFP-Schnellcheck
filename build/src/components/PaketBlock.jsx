@@ -9,7 +9,6 @@ import { PaketHaus, Tooltip, InfoIcon } from "./ui.jsx";
 
 // wp = bestimmeWpVariante-Ergebnis (key, autoKey, vorlauftemp, envAvg)
 const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, aktiveMassnahmen, empfohleneMassnahmen = [], nichtEmpfohleneMassnahmen = [], gebaeude = {}, bauteile_state = {}, wp, onWpVarianteChange = () => {} }) => {
-  const f = PAKET_FARBEN[paket.farbe];
   const aktiveMassnahmenInPaket = paket.massnahmen.filter(massnahme => aktiveMassnahmen.includes(massnahme.id));
   const summen        = summiereMassnahmen(aktiveMassnahmenInPaket, gebaeude);
   const summe_invest  = summen.invest;

@@ -17,14 +17,23 @@ Eligible building types: Einfamilienhaus (EFH), Zweifamilienhaus (ZFH), Doppelha
 ```
 build/
   src/
-    App.jsx               — React UI (main state, hooks, render logic) ~2,000 lines
+    App.jsx               — State, handlers, derived memos, page layout (~730 lines)
+    data.js               — Data model, measures, presets, calculation engine (pure, no React)
+    kosten.js             — Cost registry: every investment value + region/year/unit/VAT/evidence
+    warum.js              — "Warum diese Maßnahme / warum jetzt" texts
     helpers.jsx           — Shared formatting helpers + EnergyBar component
-    data.js               — Data model, measures, presets, calculation engine
-    data.test.js          — Vitest unit tests for data.js functions
+    data.test.js          — Vitest unit tests for data.js / kosten.js
     pdfExtract.js         — PDF energy certificate parsing (pdf.js)
     printExport.js        — window.print() export helper
     input.css             — Tailwind source + CSS variable tokens
     components/
+      ui.jsx              — Icons, Tooltip, inputs, Section/Card, EffizienzBadge, eekTextFarbe
+      Erfassung.jsx       — PresetPicker, PDF review panel, BauteilKachel
+      PaketBlock.jsx      — One package with its measures, WP variant picker, cost lines
+      Ergebnis.jsx        — VorherNachher, EekArrowScale, MergedTable (step table)
+      Diagramme.jsx       — EnergieVerlaufChart, KostenvergleichChart (20-year break-even)
+      ErgebnisUebersicht.jsx — Shared sidebar/drawer content + MobileResultsDrawer
+      Hintergruende.jsx   — "Hintergründe & Annahmen" incl. live example calculation
       ISFPPrintReport.jsx — Print-only iSFP report
       MassnahmenEditor.jsx — Collapsible cost/Förderquote editor
   build.mjs / assemble.mjs / verify.mjs — build pipeline
@@ -42,8 +51,9 @@ Run `npm test` from `build/` after any change to `data.js`.
 
 ### Key components
 
-- **`App.jsx`** — main state + UI; all hooks, package blocks, Ergebnis section
-- **`MobileResultsDrawer`** — bottom-sheet for mobile (<768 px); mirrors Ergebnis sidebar
+- **`App.jsx`** — main state + UI wiring; all derived values come from `data.js` builders
+- **`ErgebnisUebersicht`** — one component rendered in the desktop sidebar AND the mobile drawer (no duplicate markup)
+- **`MobileResultsDrawer`** — bottom-sheet for mobile (<1024 px)
 - **`ISFPPrintReport`** — `.print-only` component; stays light (not dark-mode themed)
 - **`MassnahmenEditor`** — collapsible per-measure `investition`/`foerderquote` editor
 
@@ -53,7 +63,15 @@ Run `npm test` from `build/` after any change to `data.js`.
 
 ### effectivePakete
 
-`effectivePakete` is a derived memo in App merging user-edited `massnahmenOverrides` into `MASSNAHMENPAKETE`. All downstream calculations and UI use `effectivePakete` — never raw `MASSNAHMENPAKETE` directly. There are exactly 3 intentional exceptions, each marked `// intentional:`.
+Derivation chain (all pure functions in `data.js`, used by App and by `berechneSzenario` in tests):
+
+1. `erstelleStartzustand(presetId)` — gebaeude, ist, bauteile (incl. `bauteile_overrides`), default measures. Used for initial state AND preset clicks.
+2. `erstelleEffektivenBauteilState(...)` — M7 active → `verteilung: 7`; `bestimmeWpVariante` resolves the WP variant (the only place that does).
+3. `erstelleBasisPakete(variante)` — M4 takes cost/quote of the variant (editor shows these as defaults).
+4. `erstelleEffektivePakete(...)` — + user `massnahmenOverrides` (overrides win over variant costs), sorted by score.
+5. `ordneAbgleichNachWp(...)` — M1 moves to the end of P3 when M4 is active → `dynamicPakete`.
+
+All cost/subsidy display uses `dynamicPakete`/`effectivePakete` plus `berechneFoerderung`/`summiereMassnahmen`. App.jsx has no raw `MASSNAHMENPAKETE` reference. Never derive costs in a `useEffect` that writes into overrides (that caused first-load ≠ preset-click numbers).
 
 ### bauteile_state
 
@@ -67,6 +85,18 @@ Each building has stufe (1–7) ratings for: `waende`, `dach`, `boden`, `fenster
 - `nichtEmpfohlen: true` — score > **20.0** or Infinity
 
 BADGE_EXEMPT roles (`pflichtschritt`, `enabler`, `systempfad`, `begleitkosten`) never receive badges.
+
+### Subsidies (`berechneFoerderung`, `FOERDERREGELN`)
+
+Single function for every Förder number on screen and in print. Demo simplifications (not BEG-exact) are listed in the comment above `FOERDERREGELN`: iSFP bonus also on the heat pump, flat +10 % Klimabonus for oil/gas replacement, cap 50 %, förderfähig = Investition − Sowieso-Anteil, no cost caps / income or efficiency bonus.
+
+### Measure categories
+
+`kategorie: "energetisch"` (default) or `"modernisierung"` (no energy effect, e.g. Badsanierung). Non-energy measures: no impact, no score/badge, never pre-selected, no energy step in `berechneKumuliert`, costs in `k.modernisierung_*` (not in `eigenanteil`/amortisation). Sidebar shows "Weitere Modernisierung" + "Gesamtbudget" only when such a measure is active.
+
+### Cost registry (`kosten.js`)
+
+Every `investition`/`ohnehin_anteil` comes from `KOSTENANSAETZE` (measures reference it via `kostenansatz`). Each entry carries `region`, `bezugsjahr`, `mwst`, `einheit`, `einheitspreis`/`menge`, `spanne`, `evidenz` (`dokumentiert` | `abgeleitet` | `annahme`) and `quellen`. All current values are `annahme` (no documented source). Regional values go into `KOSTENANSAETZE_REGIONAL.BE`; `kostenAnsatzFuer(id, "BE")` falls back to DE with `fallback: true`. Tests enforce the metadata and that a non-`annahme` entry has sources. Do not add numbers without an evidence level.
 
 ### State model
 
@@ -102,11 +132,11 @@ Applying a preset resets all state. efh70er has `bauteile_overrides: { fenster: 
 | Primärenergie | 236 kWh/(m²·a) | 62 kWh/(m²·a) |
 | CO₂ | 63 kg/(m²·a) | 19 kg/(m²·a) |
 | EEK | G | B |
-| Investition | 142.800 € | |
-| BEG-Förderung | 25.950 € (incl. +10 % Klimageschwindigkeitsbonus on M4) | |
-| Eigenanteil | 116.850 € | |
+| Investition | 139.800 € (M4 at auto variant „monoenergetisch“ = 29.000 €) | |
+| BEG-Förderung | 24.600 € (incl. +10 % Klimageschwindigkeitsbonus on M4) | |
+| Eigenanteil | 115.200 € | |
 
-Pinned by `data.test.js`. Update both together when changing impact functions, factors, or presets.
+With variant „monovalent“ forced: Investition 142.800 €. Pinned by `data.test.js` (via `berechneSzenario`, the app path) and `tests/e2e/golden-paths.spec.js`. Update all together when changing impact functions, factors, costs, subsidy rules or presets.
 
 ### Primary energy and CO₂ factors
 
@@ -138,8 +168,10 @@ Expected outputs: ~1.330 €/year without WP (amortisation ~14 J), ~2.020 €/ye
 
 ### Amortisation model
 
-- **Sidebar/Drawer KPI**: `Eigenanteil ÷ (IST-Heizkosten − ZIEL-Heizkosten)` at static prices. Only shown when `heizkosten > k.heizkosten_gesamt`.
-- **20-Jahr-Bilanz** (Ergebnis section): `ohneEur = heizkosten × 20`, `mitEur = k.eigenanteil + k.heizkosten_gesamt × 20`. Static prices, no escalation.
+One function, `berechneWirtschaftlichkeit`, feeds sidebar, drawer, 20-year chart and print report (incl. user overrides from the editor).
+
+- **Sidebar/Drawer KPI „Amortisation“**: `Eigenanteil ÷ (IST − ZIEL Heiz- + Wartungskosten + PV-Ertrag)` at static prices.
+- **20-Jahr-Chart / print „20-Jahr-Bilanz“**: cumulative costs with price escalation (default IST fossil 2,5 %, ZIEL 2,0 % p. a.). „Break-even“ = actual crossing of both curves, therefore usually earlier than the static amortisation.
 
 ---
 
@@ -154,7 +186,7 @@ git remote set-url origin http://local_proxy@127.0.0.1:${PROXY_PORT}/git/johakun
 git push -u origin <branch>
 ```
 
-**MCP `push_files` as fallback**: For individual files ≤~50 KB. Avoid for large files (index.html ~295 KB, package-lock.json ~106 KB) — use `git push`.
+**MCP `push_files` as fallback**: For individual files ≤~50 KB. Avoid for large files (index.html ~1.7 MB, package-lock.json ~150 KB) — use `git push`.
 
 ---
 
@@ -193,8 +225,9 @@ After every task, verify the following invariants are still satisfied:
 |-----------|-------------|
 | **Golden values** | `npm test` must pass. If PE/EEK/Eigenanteil shift, update `data.test.js` AND this file AND `AGENTS.md` together. |
 | **Offline guarantee** | `npm run build && npm test` must pass including the CDN-check in `verify.mjs`. No `googleapis.com`, `gstatic.com`, `cdnjs.cloudflare.com`, or `unpkg.com` references allowed in `dist/index.html`. |
-| **Print/live consistency** | `ISFPPrintReport` must receive `dynamicPakete` (not `effectivePakete`). If M1→P3 logic in App.jsx changes, update the prop passed to `ISFPPrintReport`. |
-| **Recommendation logic** | `massnahmeIstSchonVorhanden` gates M4 and M6. Any new "already-present" check must update both `data.js` and the `updateGebaeude`/`applyPreset` callers in `App.jsx`. |
+| **Print/live consistency** | `ISFPPrintReport` receives `dynamicPakete` and the same `wirtschaftlichkeit` object as the sidebar. It shows only active measures per package. |
+| **Recommendation logic** | `getDefaultAktiveMassnahmen` is the only default-selection rule (start state, preset, field change, PDF import via `uebernehmeGebaeude`). `massnahmeIstSchonVorhanden` gates M4 and M6. |
+| **Single sources** | Subsidy → `berechneFoerderung`; WP variant → `bestimmeWpVariante`; carrier price/label/maintenance → `faktorKeyFuerHeizung` + `TRAEGER_INFO`; costs → `kosten.js`. Do not re-implement these inline in components. |
 | **PDF confirmation** | PDF extraction must never mutate state without user confirmation (`pendingExtraction` → review UI → `applyPendingExtraction`). Do not shortcut this flow. |
 
 ---
@@ -203,7 +236,10 @@ After every task, verify the following invariants are still satisfied:
 
 | Area | Simplification |
 |------|---------------|
-| Subsidy amounts | Fixed Förderquoten; no income test, no Förderdeckel, no bonus-combination rules |
+| Subsidy amounts | Fixed Förderquoten; no income test, no Förderdeckel, no bonus-combination rules; see `FOERDERREGELN` comment for known deviations from BEG |
+| Cost scaling | Investment costs are fixed per reference EFH (~145 m²); they do not scale with Wohnfläche or geometry |
+| Cost evidence | All `KOSTENANSAETZE` are `annahme` (undocumented, bundesweit) |
+| EEK basis | Class from Primärenergie with GEG Anlage-10 thresholds; real Energieausweis (GEG §86) classifies by Endenergie |
 | Wohnfläche | Heuristic GNF / 1.3 when not from PDF |
 | WP COP | Wärmeverteilung affects WP impact through variant multipliers and flow-temperature malus, but no full hourly COP model |
 | CO₂ values | Target CO₂ is factor-based from Endenergie and carrier; per-measure CO₂ labels are still static hints |

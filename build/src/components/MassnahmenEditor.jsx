@@ -1,17 +1,17 @@
 import React, { useState } from "react";
-// intentional: uses raw MASSNAHMENPAKETE — editor must show pre-override base values
 import { MASSNAHMENPAKETE, PAKET_FARBEN } from "../data.js";
 
-const MassnahmenEditor = ({ overrides, onUpdate, onReset,
+// basisPakete = Werte vor Nutzer-Overrides (WP-Variante bereits angewandt), siehe erstelleBasisPakete.
+const MassnahmenEditor = ({ basisPakete = MASSNAHMENPAKETE, overrides, onUpdate, onReset,
   wirtschaftlichkeitOverrides = {}, heizkostenIstCalc = 0, heizkostenZielCalc = 0,
   wartungIstCalc = 0, wartungZielCalc = 0,
   eskalationIstCalc = 2.5, eskalationZielCalc = 2.0,
   onUpdateWirtschaftlichkeit = () => {}, onResetWirtschaftlichkeit = () => {} }) => {
   const [open, setOpen] = useState(false);
-  const allM = MASSNAHMENPAKETE.flatMap(paket => paket.massnahmen.map(massnahme => ({ ...massnahme, paketFarbe: paket.farbe })));
+  const allM = basisPakete.flatMap(paket => paket.massnahmen.map(massnahme => ({ ...massnahme, paketFarbe: paket.farbe })));
   return (
     <div style={{ marginTop: 32, border: "1.25px solid var(--bdr)", borderRadius: 3, background: "var(--surface)" }}>
-      <button onClick={() => setOpen(o => !o)} className="print-hide"
+      <button onClick={() => setOpen(o => !o)} className="print-hide" aria-expanded={open}
         style={{ width: "100%", padding: "15px 24px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div className="text-[11px] tracking-[0.22em] uppercase" style={{ color: "var(--acc)", fontFamily: "'Geist Mono', monospace" }}>
           Maßnahmen-Datenbank · Kosten &amp; Förderung anpassen
@@ -45,7 +45,7 @@ const MassnahmenEditor = ({ overrides, onUpdate, onReset,
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex items-baseline justify-end gap-1.5">
-                        <input type="number" min={0} step={500} value={invest}
+                        <input type="number" min={0} step={500} value={invest} aria-label={`Investition ${massnahme.kurztitel || massnahme.titel}`}
                           onChange={e => onUpdate(massnahme.id, "investition", Math.max(0, parseInt(e.target.value, 10) || 0))}
                           style={{ width: 90, fontFamily: "'Geist Mono', monospace", fontSize: 12.5, textAlign: "right",
                             background: ov.investition !== undefined ? "var(--highlight)" : "transparent",
@@ -58,7 +58,7 @@ const MassnahmenEditor = ({ overrides, onUpdate, onReset,
                       <div className="flex items-baseline justify-end gap-1.5">
                         {massnahme.foerderquote > 0 ? (
                           <>
-                            <input type="number" min={0} max={50} step={1} value={Math.round(quote * 100)}
+                            <input type="number" min={0} max={50} step={1} value={Math.round(quote * 100)} aria-label={`Förderquote ${massnahme.kurztitel || massnahme.titel}`}
                               onChange={e => onUpdate(massnahme.id, "foerderquote", Math.max(0, Math.min(50, parseInt(e.target.value, 10) || 0)) / 100)}
                               style={{ width: 50, fontFamily: "'Geist Mono', monospace", fontSize: 12.5, textAlign: "right",
                                 background: ov.foerderquote !== undefined ? "var(--highlight)" : "transparent",
@@ -118,7 +118,7 @@ const MassnahmenEditor = ({ overrides, onUpdate, onReset,
                         : `berechnet: ${Math.round(calc).toLocaleString("de-DE")} €/J`}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <input type="number" min={0} max={isEsk ? 10 : undefined} step={isEsk ? 0.5 : 50}
+                      <input type="number" min={0} max={isEsk ? 10 : undefined} step={isEsk ? 0.5 : 50} aria-label={label}
                         value={isEsk ? Number(val).toFixed(1) : val}
                         onChange={e => {
                           const raw = isEsk ? parseFloat(e.target.value) : parseInt(e.target.value, 10);

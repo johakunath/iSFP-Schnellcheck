@@ -58,7 +58,7 @@ export const ErgebnisUebersicht = ({ effizienzklasse, k, ist, heizkosten, w, woh
                   <button type="button"
                         onClick={() => scrollToTab(`paket-${pkg.id}`)}
                         style={{ fontSize: 11, color: "var(--body)", cursor: "pointer", flex: 1, textAlign: "left",
-                                 background: "none", border: "none", padding: 0, font: "inherit" }}
+                                 background: "none", border: "none", padding: 0, fontFamily: "inherit", lineHeight: "inherit" }}
                         onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"}
                         onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}
                       >{m.kurztitel}</button>
