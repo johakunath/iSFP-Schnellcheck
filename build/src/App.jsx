@@ -7,7 +7,7 @@ import {
   berechneNachMassnahmen, berechneKumuliert, berechneEffizienzklasse, berechneHeizkosten,
   preisFuerHeizung, traegerFuerHeizung,
   bewerteMassnahmen, berechnePvErtrag, berechneHeizungWartung,
-  getDefaultAktiveMassnahmen, summiereMassnahmen,
+  getDefaultAktiveMassnahmen, summiereMassnahmen, bezugsflaeche, SCORE_EMPFOHLEN_MAX, SCORE_NICHT_EMPFOHLEN_MIN,
   bauteileAlsState, erstelleStartzustand, erstelleEffektivenBauteilState,
   erstelleBasisPakete, erstelleEffektivePakete, ordneAbgleichNachWp, berechneWirtschaftlichkeit,
   DEFAULT_FOERDERKONTEXT, ANTRAGSZEITRAEUME, EINKOMMENSSTUFEN, FOERDERSTAND,
@@ -31,6 +31,7 @@ import { EnergieVerlaufChart, KostenvergleichChart } from "./components/Diagramm
 import { ErgebnisUebersicht, MobileResultsDrawer } from "./components/ErgebnisUebersicht.jsx";
 
 // Felder, deren Änderung Bauteil-Noten bzw. die Maßnahmen-Vorauswahl neu ableitet
+const fmtScore = (v) => v.toFixed(1).replace(".", ",");
 const BAUTEILE_NEU_FELDER = ["baujahr", "heizung_typ", "lueftung", "warmwasser"];
 const MASSNAHMEN_NEU_FELDER = ["baujahr", "heizung_typ", "lueftung", "warmwasser", "waermeverteilung", "erneuerbare"];
 
@@ -361,8 +362,8 @@ export default function App() {
   );
 
   const heizkosten = useMemo(
-    () => berechneHeizkosten(ist.endenergie, gebaeude.wohnflaeche, gebaeude.heizung_typ),
-    [ist.endenergie, gebaeude.wohnflaeche, gebaeude.heizung_typ]
+    () => berechneHeizkosten(ist.endenergie, bezugsflaeche(gebaeude), gebaeude.heizung_typ),
+    [ist.endenergie, gebaeude, gebaeude.heizung_typ]
   );
   const hatWP = aktiveMassnahmen.includes("M4");
   const hatPV = aktiveMassnahmen.includes("M6");
@@ -372,7 +373,7 @@ export default function App() {
   );
   const wartungIstCalc  = wartungCalcResult.istJahr;
   const wartungZielCalc = wartungCalcResult.zielJahr;
-  const effizienzklasse = useMemo(() => berechneEffizienzklasse(ist.primaerenergie), [ist.primaerenergie]);
+  const effizienzklasse = useMemo(() => berechneEffizienzklasse(ist.endenergie), [ist.endenergie]);
   const gebaeudeWithState = useMemo(() => ({ ...gebaeudeF, bauteile_state: effectiveBauteilState }), [gebaeudeF, effectiveBauteilState]);
   const k = useMemo(() => berechneNachMassnahmen(aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete), [aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete]);
   const kumuliert = useMemo(() => berechneKumuliert(aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete), [aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete]);
@@ -409,7 +410,7 @@ export default function App() {
   }, [dynamicPakete, aktiveMassnahmen, gebaeudeF]);
   const warumCtx = useMemo(() => ({ bauteile_state: effectiveBauteilState, gebaeude: gebaeudeF, aktiveMassnahmen, wp }), [effectiveBauteilState, gebaeudeF, aktiveMassnahmen, wp]);
   const ergebnisProps = {
-    effizienzklasse, k, ist, heizkosten, w: wirtschaftlichkeit, wohnflaeche: gebaeude.wohnflaeche,
+    effizienzklasse, k, ist, heizkosten, w: wirtschaftlichkeit, wohnflaeche: bezugsflaeche(gebaeude),
     reportSummaryPackages, empfohleneMassnahmen, nichtEmpfohleneMassnahmen, warumCtx, scrollToTab,
   };
 
@@ -621,7 +622,7 @@ export default function App() {
             <Card>
               <CardEyebrow>Energie­kennzahlen (Ist)</CardEyebrow>
               <NumberInput label="Endenergie"       value={ist.endenergie}     onChange={v => updateIst("endenergie", v)} unit="kWh/(m²·a)" min={0} max={600}
-                tooltip="Die dem Gebäude zugeführte Energie. Basis für Heizkosten-Berechnung." />
+                tooltip="Die dem Gebäude zugeführte Energie je m² Nutzfläche AN. Basis für Heizkosten und Effizienzklasse. Bedarfsausweise liegen bei unsanierten Häusern oft deutlich über dem tatsächlichen Verbrauch — reale Heizkosten lassen sich unter „Wirtschaftlichkeit“ eintragen." />
               <NumberInput label="Primärenergie"    value={ist.primaerenergie} onChange={v => updateIst("primaerenergie", v)} unit="kWh/(m²·a)" min={0} max={700}
                 tooltip="Berücksichtigt die 'Vorkette' (Energieträger-Gewinnung, Transport). Basis für die Effizienzklasse in diesem Tool. Der Energieausweis nach GEG §86 klassifiziert dagegen nach Endenergie." />
               <NumberInput label="CO₂-Emissionen"   value={ist.co2}            onChange={v => updateIst("co2", v)} unit="kg/(m²·a)" min={0} max={200} step={0.1} />
@@ -629,12 +630,12 @@ export default function App() {
                 <span className="flex items-center gap-1.5" style={labelStyle}>
                   Effizienzklasse
                   <span style={{ color: "var(--acc)" }} title="Automatisch berechnet"><SparkleIcon size={11} /></span>
-                  <Tooltip content="Nach iSFP-Bewertungsschema aus Primärenergie (nicht Endenergie!)."><span style={{ color: "var(--acc)" }}><InfoIcon /></span></Tooltip>
+                  <Tooltip content="Wie im Energieausweis aus der Endenergie je m² Nutzfläche AN (Skala A+ bis H). Der BAFA-iSFP nutzt zusätzlich eine eigene Farbskala auf Primärenergie-Basis."><span style={{ color: "var(--acc)" }}><InfoIcon /></span></Tooltip>
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: EFFIZIENZ_FARBEN[effizienzklasse] || "#6B6259", color: eekTextFarbe(effizienzklasse), borderRadius: 3, fontSize: 15, fontWeight: 600, width: 34, height: 28, fontFamily: "'Fraunces', serif" }}>{effizienzklasse}</span>
               </div>
               <ComputedRow label="Heizkosten gesamt"   value={fmt(heizkosten)}   unit="€/a"
-                tooltip={`${ist.endenergie} kWh/m² × ${gebaeude.wohnflaeche} m² × ${preisFuerHeizung(gebaeude.heizung_typ).toFixed(2)} €/kWh (${traegerFuerHeizung(gebaeude.heizung_typ)}) = ${fmt(heizkosten)} €/Jahr`} />
+                tooltip={`${ist.endenergie} kWh/m² × ${Math.round(bezugsflaeche(gebaeude))} m² AN × ${preisFuerHeizung(gebaeude.heizung_typ).toFixed(2)} €/kWh (${traegerFuerHeizung(gebaeude.heizung_typ)}) = ${fmt(heizkosten)} €/Jahr`} />
             </Card>
           </div>
         </Section>
@@ -654,7 +655,7 @@ export default function App() {
 
         {/* Fahrplan */}
         <Section id="fahrplan" eyebrow="Schritt 2 · Fahrplan" title="Empfohlene Maßnahmenpakete"
-          subtitle="Reihenfolge nach Kosten-Nutzen (€/kWh Primärenergie). ★ = Score &lt; 10,5 €/kWh (empfohlen); ✕ = Score &gt; 20 €/kWh oder kein PE-Effekt.">
+          subtitle={`Reihenfolge nach Kosten-Nutzen (€ je jährlich eingesparter kWh Primärenergie). ★ = Score < ${fmtScore(SCORE_EMPFOHLEN_MAX)} €/kWh (empfohlen); ✕ = Score > ${fmtScore(SCORE_NICHT_EMPFOHLEN_MIN)} €/kWh oder kein PE-Effekt.`}>
           {(() => {
             const totalCols = dynamicPakete.length + 2;
             const lineOffset = `${50 / totalCols}%`;
@@ -723,8 +724,8 @@ export default function App() {
             <EekArrowScale
               istKlasse={effizienzklasse}
               zielKlasse={k.effizienzklasse}
-              istPe={`${ist.primaerenergie} kWh`}
-              zielPe={`${k.primaerenergie} kWh`}
+              istPe={`EE ${ist.endenergie} kWh`}
+              zielPe={`EE ${k.endenergie} kWh`}
             />
             <MergedTable kumuliert={kumuliert} ist={ist} heizkosten={heizkosten} />
           </div>

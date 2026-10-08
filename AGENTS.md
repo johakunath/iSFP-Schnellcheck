@@ -45,7 +45,7 @@ MCP `push_files` works for small files (≤~50 KB) but is unreliable for large o
 
 1. **Never edit the root `index.html` directly** — it is overwritten by every build.
 2. **Single sources**: packages via `erstelleEffektivePakete` + `ordneAbgleichNachWp`, subsidy via `berechneFoerderung`, WP variant via `bestimmeWpVariante`, economics via `berechneWirtschaftlichkeit`, costs via `kosten.js`. No raw `MASSNAHMENPAKETE` in App.jsx.
-3. **Calculation reference**: `berechneSzenario({ presetId: "efhNachkrieg", aktiveMassnahmen: allIds })` must produce PE=62, CO₂=19, EEK=B, Investition=139,800, Förderung=27,200, Eigenanteil=112,600 (M4 at auto variant monoenergetisch; BEG 2026 default context: self-user, iSFP, application until 01/2027). PE/CO₂ are factor-based from target Endenergie and carrier, with PV as a separate credit; if your change shifts these, update `data.test.js` and CLAUDE.md together.
+3. **Calculation reference**: `berechneSzenario({ presetId: "efhNachkrieg", aktiveMassnahmen: allIds })` must produce PE=62, CO₂=19, EEK=A (from Endenergie 41), Investition=139,800, Förderung=27,200, Eigenanteil=112,600 (M4 at auto variant monoenergetisch; BEG 2026 default context: self-user, iSFP, application until 01/2027). PE/CO₂ are factor-based from target Endenergie and carrier, with PV as a separate credit; if your change shifts these, update `data.test.js` and CLAUDE.md together.
 4. **One build per PR**: verify `npm run build && npm test` both pass before pushing.
 5. **German naming is intentional**: `bauteile_state`, `effectivePakete`, `bewerteMassnahmen`, etc. Keep it consistent.
 

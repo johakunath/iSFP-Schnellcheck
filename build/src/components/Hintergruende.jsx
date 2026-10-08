@@ -1,16 +1,18 @@
 import React, { useState } from "react";
-import { FOERDERREGELN, FOERDERSTAND, berechneSzenario, berechneHeizkosten, preisFuerHeizung, traegerFuerHeizung, summiereMassnahmen } from "../data.js";
+import { FOERDERREGELN, FOERDERSTAND, SCORE_EMPFOHLEN_MAX, SCORE_NICHT_EMPFOHLEN_MIN, berechneSzenario, berechneHeizkosten, bezugsflaeche, preisFuerHeizung, traegerFuerHeizung, summiereMassnahmen } from "../data.js";
 import { DATENSTAND } from "../kosten.js";
 import { fmt, fmtEur } from "../helpers.jsx";
 
 const fmtP = p => p.toFixed(2).replace(".", ",");
+const fmtS = v => v.toFixed(1).replace(".", ",");
 
 // Beispielrechnung aus der echten Rechenkette — kann nicht mehr veralten.
 function beispielText() {
   const s = berechneSzenario({ presetId: "efhNachkrieg" });
   const { gebaeude, ist } = s.start;
   const { k } = s;
-  const hk = berechneHeizkosten(ist.endenergie, gebaeude.wohnflaeche, gebaeude.heizung_typ);
+  const an = Math.round(bezugsflaeche(gebaeude));
+  const hk = berechneHeizkosten(ist.endenergie, an, gebaeude.heizung_typ);
   const zeile = (id) => {
     const m = s.pakete.flatMap(p => p.massnahmen).find(x => x.id === id);
     if (!m || !s.aktive.includes(id)) return null;
@@ -20,15 +22,15 @@ function beispielText() {
   const co2Pct = Math.round((1 - k.co2 / ist.co2) * 100);
   return [
     `Haus: EFH ${gebaeude.baujahr} · ${gebaeude.wohnflaeche} m² · ${gebaeude.heizung_typ} · PE ${ist.primaerenergie} kWh/(m²·a)`,
-    `IST-Heizkosten:  ${ist.endenergie} kWh/m² × ${gebaeude.wohnflaeche} m² × ${fmtP(preisFuerHeizung(gebaeude.heizung_typ))} €/kWh (${traegerFuerHeizung(gebaeude.heizung_typ)}) = ${fmt(hk)} €/Jahr`,
+    `IST-Heizkosten:  ${ist.endenergie} kWh/m² × ${an} m² AN × ${fmtP(preisFuerHeizung(gebaeude.heizung_typ))} €/kWh (${traegerFuerHeizung(gebaeude.heizung_typ)}) = ${fmt(hk)} €/Jahr`,
     "",
     zeile("M1"),
     zeile("M4"),
     "",
     "Gesamtfahrplan — Standardauswahl:",
-    `  Endenergie ZIEL  ${k.endenergie} kWh/(m²·a)  ·  Primärenergie ZIEL  ${k.primaerenergie} kWh/(m²·a)  →  Klasse ${k.effizienzklasse}`,
+    `  Endenergie ZIEL  ${k.endenergie} kWh/(m²·a)  →  Klasse ${k.effizienzklasse}  ·  Primärenergie ZIEL  ${k.primaerenergie} kWh/(m²·a)`,
     `  CO₂:  ${ist.co2} → ${k.co2} kg/(m²·a)  (−${co2Pct} %)`,
-    `  ZIEL-Heizkosten: ${k.endenergie} × ${gebaeude.wohnflaeche} m² × ${fmtP(k.heizkosten_tarif)} €/kWh (${k.heizkosten_traeger}) = ${fmt(k.heizkosten_gesamt)} €/Jahr`,
+    `  ZIEL-Heizkosten: ${k.endenergie} × ${an} m² AN × ${fmtP(k.heizkosten_tarif)} €/kWh (${k.heizkosten_traeger}) = ${fmt(k.heizkosten_gesamt)} €/Jahr`,
     `  Investition ${fmtEur(k.invest_gesamt)}  ·  Förderung ${fmtEur(k.foerderung_gesamt)}  ·  Eigenanteil ${fmtEur(k.eigenanteil)}`,
   ].filter(z => z !== null).join("\n");
 }
@@ -105,12 +107,12 @@ const Hintergruende = ({ k }) => {
                   Sie geben Gebäudedaten ein — Baujahr, Heizung, Wohnfläche, Bauteil-Zustand — und erhalten einen priorisierten Sanierungsfahrplan mit Energiekennzahlen, Kosten und BEG-Förderung. Das Tool ist kein BAFA-zertifizierter iSFP, sondern ein Demonstrator auf Basis realer Marktdaten 2026.
                 </Sub>
                 <Sub title="Woher kommen die Energiezahlen?">
-                  <b>Endenergie</b> ist die dem Gebäude zugeführte Energie (Öl, Gas, Strom). Die Maßnahmen schätzen zuerst die Endenergie-Änderung. <b>Primärenergie</b> = Endenergie × Primärenergiefaktor nach GEG Anlage 4; <b>CO₂</b> = Endenergie × Emissionsfaktor nach GEG Anlage 9 (Faktoren aus dem GEG; seit 29.07.2026 gilt das GModG — Übernahme der Faktoren nicht geprüft). Die <b>Effizienzklasse A+–H</b> wird in diesem Tool aus der Primärenergie gebildet (Farbskala im iSFP-Stil). Achtung: Der Energieausweis klassifiziert nach Endenergie — die Klassen sind daher nicht direkt mit einem Energieausweis vergleichbar. Fernwärme nutzt Demo-Fallbackwerte, weil reale Energieausweise netzspezifische Faktoren verwenden.
+                  <b>Endenergie</b> ist die dem Gebäude zugeführte Energie (Öl, Gas, Strom). Die Maßnahmen schätzen zuerst die Endenergie-Änderung. <b>Primärenergie</b> = Endenergie × Primärenergiefaktor nach GEG Anlage 4; <b>CO₂</b> = Endenergie × Emissionsfaktor nach GEG Anlage 9 (Faktoren aus dem GEG; seit 29.07.2026 gilt das GModG — Übernahme der Faktoren nicht geprüft). Die <b>Effizienzklasse A+–H</b> ergibt sich wie im Energieausweis aus der Endenergie je m² Nutzfläche A<sub>N</sub>. Alle Kennwerte und Heizkosten beziehen sich auf A<sub>N</sub>. Der BAFA-iSFP nutzt zusätzlich eine eigene Farbskala auf Primärenergie-Basis; die Primärenergie dient hier dem €/kWh-Ranking. Fernwärme nutzt Demo-Fallbackwerte, weil reale Energieausweise netzspezifische Faktoren verwenden.
                   <br /><br />
                   Für den Zielzustand werden PE und CO₂ nach jedem Paket neu aus der verbleibenden Endenergie und dem dann aktiven Energieträger berechnet. Bei Wärmepumpen-Szenarien wechselt der Ziel-Energieträger auf WP-Strom; bei Fernwärme bleiben die Werte bewusst als Demo-Fallback markiert, weil Netzbetreiber-Faktoren im echten Energieausweis abweichen können. Die kompakten CO₂-Hinweise an einzelnen Maßnahmen zeigen nur die grobe Richtung, nicht die verbindliche Endsumme.
                 </Sub>
                 <Sub title="Wie wird die Reihenfolge der Maßnahmen bestimmt?">
-                  Jede Maßnahme erhält eine Punktzahl: Netto-Investition ÷ eingesparte Primärenergie [€/kWh PE]. Niedrig = wirtschaftlich sinnvoll. Die Pakete werden nach dieser Punktzahl sortiert und aktualisieren sich automatisch, wenn Sie Gebäudedaten oder Bauteil-Stufen ändern. Die <b>★ Empfohlen</b>-Markierung zeigt Maßnahmen mit Score unter 10,5 €/kWh PE — besonders wirtschaftlich für Ihr Gebäude. <b>✕ Nicht empfohlen</b> kennzeichnet Maßnahmen mit Score über 20 €/kWh PE oder ohne messbaren Primärenergie-Effekt.
+                  Jede Maßnahme erhält eine Punktzahl: Netto-Investition (ohne Sowieso-Anteil) ÷ jährlich eingesparte Primärenergie des ganzen Gebäudes [€/kWh PE]. Niedrig = wirtschaftlich sinnvoll. Die Pakete werden nach dieser Punktzahl sortiert und aktualisieren sich automatisch, wenn Sie Gebäudedaten oder Bauteil-Stufen ändern. Die <b>★ Empfohlen</b>-Markierung zeigt Maßnahmen mit Score unter {fmtS(SCORE_EMPFOHLEN_MAX)} €/kWh PE — besonders wirtschaftlich für Ihr Gebäude. <b>✕ Nicht empfohlen</b> kennzeichnet Maßnahmen mit Score über {fmtS(SCORE_NICHT_EMPFOHLEN_MIN)} €/kWh PE oder ohne messbaren Primärenergie-Effekt.
                 </Sub>
                 <Sub title="Wie werden die Förderungen berechnet?">
                       Stand: {FOERDERSTAND}. Förderfähig sind die Gesamtkosten der Maßnahme inkl. Umfeldmaßnahmen (Gerüst, Neueindeckung, Putz, Rückbau der Altanlage) — Sowieso-Kosten werden nicht abgezogen.

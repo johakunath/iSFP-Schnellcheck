@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  EFFIZIENZ_FARBEN, PAKET_FARBEN, berechneEffizienzklasse, preisFuerHeizung, traegerFuerHeizung, berechnePvErtrag,
+  EFFIZIENZ_FARBEN, PAKET_FARBEN, berechneEffizienzklasse, bezugsflaeche, preisFuerHeizung, traegerFuerHeizung, berechnePvErtrag,
 } from "../data.js";
 import { fmt, fmtEur } from "../helpers.jsx";
 import { Tooltip, InfoIcon, EffizienzBadge, valueStyle, eekTextFarbe } from "./ui.jsx";
@@ -14,7 +14,7 @@ export const VorherNachher = ({ ist, k, heizkostenIst, gebaeude }) => {
   const istTooltip = (
     <span>
       <b>Berechnung IST:</b><br />
-      {fmtN(ist.endenergie)} kWh/m² × {gebaeude.wohnflaeche} m²<br />
+      {fmtN(ist.endenergie)} kWh/m² × {fmtN(bezugsflaeche(gebaeude))} m² AN<br />
       × {fmtP(istTarif)} €/kWh ({istTraeger})<br />
       = <b>{fmtN(heizkostenIst)} €/Jahr</b>
     </span>
@@ -23,7 +23,7 @@ export const VorherNachher = ({ ist, k, heizkostenIst, gebaeude }) => {
   const zielTooltip = (
     <span>
       <b>Berechnung ZIEL:</b><br />
-      {fmtN(k.endenergie)} kWh/m² × {gebaeude.wohnflaeche} m²<br />
+      {fmtN(k.endenergie)} kWh/m² × {fmtN(bezugsflaeche(gebaeude))} m² AN<br />
       × {fmtP(k.heizkosten_tarif)} €/kWh ({k.heizkosten_traeger})<br />
       = <b>{fmtN(k.heizkosten_gesamt)} €/Jahr</b>
       {higher && <><br /><span style={{ color: "var(--acc)" }}>Höher als IST: WP-Stromtarif ({fmtP(k.heizkosten_tarif)} €/kWh) ist teurer als {istTraeger} ({fmtP(istTarif)} €/kWh), aber Endenergie sinkt stark — Hüllsanierung würde dies korrigieren.</span></>}
@@ -48,7 +48,7 @@ export const VorherNachher = ({ ist, k, heizkostenIst, gebaeude }) => {
       <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "28px 26px" }}>
         <div className="flex items-center justify-between mb-5">
           <div className="text-[11px] tracking-[0.22em] uppercase" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>Heute</div>
-          <EffizienzBadge klasse={berechneEffizienzklasse(ist.primaerenergie)} size="md" />
+          <EffizienzBadge klasse={berechneEffizienzklasse(ist.endenergie)} size="md" />
         </div>
         <div className="space-y-3">
           {stdRows([
@@ -208,12 +208,12 @@ export const MergedTable = ({ kumuliert, ist, heizkosten = 0 }) => {
           <tr style={{ borderBottom: "1.25px solid var(--txt)" }}>
             <th className="text-left py-2.5 font-medium" style={{ width: 180 }}>Schritt</th>
             <th className="text-right py-2.5 font-medium">
-              <Tooltip content="Tatsächlich gelieferter Energieträger in kWh pro m² Wohnfläche und Jahr.">
+              <Tooltip content="Gelieferte Energie in kWh pro m² Nutzfläche AN und Jahr. Basis für die Effizienzklasse (wie im Energieausweis).">
                 <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>Endenergie</span>
               </Tooltip>
             </th>
             <th className="text-right py-2.5 font-medium">
-              <Tooltip content="Gesamtenergieeinsatz inkl. Vorkette. Basis für die Energieeffizienzklasse.">
+              <Tooltip content="Gesamtenergieeinsatz inkl. Vorkette. Basis für das €/kWh-Ranking der Maßnahmen.">
                 <span style={{ color: "var(--acc)", display: "inline-flex", verticalAlign: "middle" }}><InfoIcon size={11} /></span><span style={{ marginLeft: 5 }}>Primärenergie</span>
               </Tooltip>
             </th>
@@ -247,7 +247,7 @@ export const MergedTable = ({ kumuliert, ist, heizkosten = 0 }) => {
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                 <span style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.endenergie}</span>
                 <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.primaerenergie)] || "var(--sec)", borderRadius: 2 }} />
+                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.endenergie)] || "var(--sec)", borderRadius: 2 }} />
                 </div>
               </div>
             </td>
@@ -255,7 +255,7 @@ export const MergedTable = ({ kumuliert, ist, heizkosten = 0 }) => {
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                 <span style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.primaerenergie}</span>
                 <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.primaerenergie)] || "var(--sec)", borderRadius: 2 }} />
+                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.endenergie)] || "var(--sec)", borderRadius: 2 }} />
                 </div>
               </div>
             </td>
@@ -263,12 +263,12 @@ export const MergedTable = ({ kumuliert, ist, heizkosten = 0 }) => {
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                 <span style={{ fontFamily: "'Geist Mono', monospace" }}>{ist.co2}</span>
                 <div style={{ width: 40, height: 3, background: "var(--div)", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.primaerenergie)] || "var(--sec)", borderRadius: 2 }} />
+                  <div style={{ height: "100%", width: "100%", background: EFFIZIENZ_FARBEN[berechneEffizienzklasse(ist.endenergie)] || "var(--sec)", borderRadius: 2 }} />
                 </div>
               </div>
             </td>
             <td className="text-right py-2.5">
-              <EffizienzBadge klasse={berechneEffizienzklasse(ist.primaerenergie)} size="sm" />
+              <EffizienzBadge klasse={berechneEffizienzklasse(ist.endenergie)} size="sm" />
             </td>
             <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>
             <td className="text-right py-2.5" style={{ color: "var(--sec)", fontFamily: "'Geist Mono', monospace" }}>—</td>

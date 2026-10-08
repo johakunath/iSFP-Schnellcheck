@@ -207,7 +207,7 @@ export const PRESETS = {
   efhSaniert: {
     id: "efhSaniert",
     label: "EFH Neubau 2012",
-    beschreibung: "1 WE · 148 m² · Gas-Brennwert · Klasse C · Neubaustandard",
+    beschreibung: "1 WE · 148 m² · Gas-Brennwert · Klasse B/C · Neubaustandard",
     gebaeude: {
       standort: "Frankfurt", strasse: "Amselweg 3", plz: "60599",
       baujahr: 2012, typ: "Einfamilienhaus",
@@ -687,19 +687,29 @@ export const istEnergetisch = (m) => (m.kategorie ?? "energetisch") === "energet
 
 // ─── Berechnung ───────────────────────────────────────────────────────────
 
-// Effizienzklasse aus Primärenergie (Demo-Farbskala im iSFP-Stil).
-// Achtung: Der Energieausweis nach GEG §86 / Anlage 10 klassifiziert nach
-// ENDenergie. Schwellen hier = Anlage-10-Schwellen, angewandt auf Primärenergie.
-export function berechneEffizienzklasse(primaerenergie) {
-  if (primaerenergie <= 30)  return "A+";
-  if (primaerenergie <= 50)  return "A";
-  if (primaerenergie <= 75)  return "B";
-  if (primaerenergie <= 100) return "C";
-  if (primaerenergie <= 130) return "D";
-  if (primaerenergie <= 160) return "E";
-  if (primaerenergie <= 200) return "F";
-  if (primaerenergie <= 250) return "G";
+// Energieeffizienzklasse wie im Energieausweis für Wohngebäude: aus der ENDenergie
+// in kWh/(m²·a) bezogen auf die Nutzfläche AN (Skala GEG Anlage 10, A+ bis H).
+// Hinweis: Der BAFA-iSFP nutzt eine eigene 7-stufige Farbskala auf Primärenergie-Basis;
+// die Primärenergie wird hier separat ausgewiesen und für das €/kWh-Ranking genutzt.
+export function berechneEffizienzklasse(endenergie) {
+  if (endenergie <= 30)  return "A+";
+  if (endenergie <= 50)  return "A";
+  if (endenergie <= 75)  return "B";
+  if (endenergie <= 100) return "C";
+  if (endenergie <= 130) return "D";
+  if (endenergie <= 160) return "E";
+  if (endenergie <= 200) return "F";
+  if (endenergie <= 250) return "G";
   return "H";
+}
+
+// Bezugsfläche der Energiekennwerte (kWh/m²·a): Gebäudenutzfläche AN wie im Energieausweis.
+// Fehlt AN, wird sie aus der Wohnfläche geschätzt (Verhältnis des Referenzgebäudes, 180/145).
+export function bezugsflaeche(gebaeude = {}) {
+  const an = Number(gebaeude.gebaeudenutzflaeche);
+  if (an > 0) return an;
+  const wf = Number(gebaeude.wohnflaeche) > 0 ? Number(gebaeude.wohnflaeche) : REFERENZ_GEBAEUDE.wohnflaeche;
+  return wf * REFERENZ_GEBAEUDE.gebaeudenutzflaeche / REFERENZ_GEBAEUDE.wohnflaeche;
 }
 
 export function faktorKeyFuerHeizung(typ) {
@@ -735,8 +745,9 @@ export function berechneCo2AusEndenergie(endenergie, heizungTyp) {
   return Math.max(2, endenergie * faktorenFuerHeizung(heizungTyp).co2KgProKwh);
 }
 
-export function berechneHeizkosten(endenergie, wohnflaeche, heizungTyp) {
-  return Math.round(endenergie * wohnflaeche * preisFuerHeizung(heizungTyp));
+// flaeche = Bezugsfläche der Kennwerte (AN, siehe bezugsflaeche)
+export function berechneHeizkosten(endenergie, flaeche, heizungTyp) {
+  return Math.round(endenergie * flaeche * preisFuerHeizung(heizungTyp));
 }
 
 // aktiveMassnahmen = array of measure IDs e.g. ["M1","M2","M4"]
@@ -785,13 +796,13 @@ export function berechneNachMassnahmen(aktiveMassnahmen, ist, gebaeude, pakete =
   const co2 = anzahlEnergetisch === 0
     ? ist.co2
     : Math.max(2, berechneCo2AusEndenergie(endenergie, heizungTyp) - co2Credit);
-  const heizkosten_gesamt = berechneHeizkosten(endenergie, gebaeude.wohnflaeche, heizungTyp);
+  const heizkosten_gesamt = berechneHeizkosten(endenergie, bezugsflaeche(gebaeude), heizungTyp);
 
   return {
     endenergie: Math.round(endenergie),
     primaerenergie: Math.round(primaerenergie),
     co2: Math.round(co2 * 10) / 10,
-    effizienzklasse: berechneEffizienzklasse(primaerenergie),
+    effizienzklasse: berechneEffizienzklasse(anzahlEnergetisch === 0 ? ist.endenergie : endenergie),
     // Energetische Sanierung (Basis für Amortisation und BEG-Eigenanteil)
     invest_gesamt: Math.round(invest_gesamt),
     instand_gesamt: Math.round(instand_gesamt),
@@ -823,10 +834,14 @@ export function berechneKumuliert(aktiveMassnahmen, ist, gebaeude, pakete = MASS
 }
 
 // ─── Maßnahmen-Bewertung (€/kWh Primärenergie) ────────────────────────────
+// Schwellen in € je jährlich eingesparter kWh PE. Ursprünglich 10,5 / 20 bei Bezug auf die
+// Wohnfläche; seit Bezug auf AN mit 145/180 umgerechnet, damit die Empfehlungen gleich bleiben.
+export const SCORE_EMPFOHLEN_MAX       = 10.5 * 145 / 180; // ≈ 8,46
+export const SCORE_NICHT_EMPFOHLEN_MIN = 20.0 * 145 / 180; // ≈ 16,1
 // Returns measures sorted best-first (lowest cost per kWh saved).
 // Nicht-energetische Maßnahmen erhalten score = Infinity und nie ein Badge.
 export function bewerteMassnahmen(massnahmen, bauteile_state, gebaeude) {
-  const wf = (gebaeude && gebaeude.wohnflaeche) || 150;
+  const wf = bezugsflaeche(gebaeude || {});
   const bs = bauteile_state || {};
   const scored = massnahmen.map(m => {
     const invest_netto = (m.investition ?? 0) - (m.ohnehin_anteil ?? 0);
@@ -844,8 +859,8 @@ export function bewerteMassnahmen(massnahmen, bauteile_state, gebaeude) {
   const sorted = [...scored].sort((a, b) => a.score - b.score);
   // Absolute thresholds: bad buildings naturally score lower → more measures get empfohlen.
   // Good buildings cluster above EMPFOHLEN_MAX → fewer measures recommended.
-  const EMPFOHLEN_MAX       = 10.5;  // €/(kWh PE saved / year)
-  const NICHT_EMPFOHLEN_MIN = 20.0;
+  const EMPFOHLEN_MAX       = SCORE_EMPFOHLEN_MAX;
+  const NICHT_EMPFOHLEN_MIN = SCORE_NICHT_EMPFOHLEN_MIN;
   // "synergie" (M6 PV) intentionally NOT exempt — it should compete on score like any energetisch measure
   const BADGE_EXEMPT = ["enabler", "pflichtschritt", "begleitkosten", "systempfad"];
   return sorted.map(m => {

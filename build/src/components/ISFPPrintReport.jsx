@@ -4,12 +4,13 @@ import { MASSNAHMENPAKETE, EFFIZIENZ_FARBEN, PAKET_FARBEN, berechneEffizienzklas
 
 // wirtschaftlichkeit = dieselbe berechneWirtschaftlichkeit-Rechnung wie Sidebar und 20-Jahr-Chart
 const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen, gebaeude, kumuliert, effectivePakete = MASSNAHMENPAKETE, wirtschaftlichkeit: w, eskalationIst = 0, eskalationZiel = 0 }) => {
-  const istKlasse = berechneEffizienzklasse(ist.primaerenergie);
+  const istKlasse = berechneEffizienzklasse(ist.endenergie);
   // Nur aktive Maßnahmen je Paket; Pakete ohne energetische Maßnahme sind keine Energieschritte (wie berechneKumuliert)
   const aktivePaketeObj = effectivePakete
     .filter(p => aktivePakete.includes(p.id))
     .map(p => ({ ...p, massnahmen: p.massnahmen.filter(m => aktiveMassnahmen.includes(m.id)) }))
     .filter(p => p.massnahmen.some(istEnergetisch));
+  // Hinweis: Gesamt- und Gebäude-EEK basieren beide auf der Endenergie
   const co2Gesamt = Math.round(ist.co2 * gebaeude.gebaeudenutzflaeche);
   const co2Ziel = Math.round(k.co2 * gebaeude.gebaeudenutzflaeche);
   const kostenEinsparPct = heizkostenIst > 0 ? Math.round((1 - k.heizkosten_gesamt / heizkostenIst) * 100) : 0;

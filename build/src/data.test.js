@@ -31,6 +31,10 @@ import {
   OPTIONS_HEIZUNG,
   berechneSzenario,
   berechneMengen,
+  bezugsflaeche,
+  berechneHeizkosten,
+  SCORE_EMPFOHLEN_MAX,
+  SCORE_NICHT_EMPFOHLEN_MIN,
   wendeMengenAn,
   heizungsFoerderParameter,
   klimabonusBerechtigt,
@@ -136,17 +140,17 @@ describe("wpTypEmpfehlung", () => {
 describe("bewerteMassnahmen", () => {
   const allMassnahmen = MASSNAHMENPAKETE.flatMap(p => p.massnahmen);
 
-  it("empfohlen measures have score < 10.5", () => {
+  it("empfohlen measures have score below SCORE_EMPFOHLEN_MAX", () => {
     const result = bewerteMassnahmen(allMassnahmen, {}, { wohnflaeche: 145 });
     result.filter(m => m.empfohlen).forEach(m => {
-      expect(m.score).toBeLessThan(10.5);
+      expect(m.score).toBeLessThan(SCORE_EMPFOHLEN_MAX);
     });
   });
 
-  it("nichtEmpfohlen measures have score > 20 or Infinity", () => {
+  it("nichtEmpfohlen measures have score above SCORE_NICHT_EMPFOHLEN_MIN or Infinity", () => {
     const result = bewerteMassnahmen(allMassnahmen, {}, { wohnflaeche: 145 });
     result.filter(m => m.nichtEmpfohlen).forEach(m => {
-      expect(!Number.isFinite(m.score) || m.score > 20.0).toBe(true);
+      expect(!Number.isFinite(m.score) || m.score > SCORE_NICHT_EMPFOHLEN_MIN).toBe(true);
     });
   });
 
@@ -208,8 +212,8 @@ describe("berechneNachMassnahmen (efhNachkrieg, all measures, app path)", () => 
     expect(Math.round(k.co2)).toBe(19);
   });
 
-  it("EEK is B", () => {
-    expect(k.effizienzklasse).toBe("B");
+  it("EEK is A (from Endenergie, as in the Energieausweis)", () => {
+    expect(k.effizienzklasse).toBe("A");
   });
 
   it("Investition 139.800 € · Förderung 27.200 € · Eigenanteil 112.600 € (BEG 2026, M4 monoenergetisch)", () => {
@@ -230,8 +234,8 @@ describe("berechneNachMassnahmen (efh70er, all measures, fenster=5 override, app
     expect(k.primaerenergie).toBe(51);
   });
 
-  it("EEK is B", () => {
-    expect(k.effizienzklasse).toBe("B");
+  it("EEK is A (from Endenergie, as in the Energieausweis)", () => {
+    expect(k.effizienzklasse).toBe("A");
   });
 
   it("Eigenanteil = 123.520 € (larger house; gas boiler from 2015 → no Klimageschwindigkeitsbonus)", () => {
@@ -546,8 +550,8 @@ describe("berechneNachMassnahmen (no measures active)", () => {
     expect(k.primaerenergie).toBe(ist.primaerenergie);
   });
 
-  it("EEK matches IST EEK", () => {
-    expect(k.effizienzklasse).toBe(berechneEffizienzklasse(ist.primaerenergie));
+  it("EEK matches IST EEK (from IST Endenergie)", () => {
+    expect(k.effizienzklasse).toBe(berechneEffizienzklasse(ist.endenergie));
   });
 
   it("invest, foerderung, eigenanteil all zero", () => {
@@ -689,5 +693,29 @@ describe("MASSNAHMENPAKETE M1 placement", () => {
     const p1 = MASSNAHMENPAKETE.find(p => p.id === "P1");
     const m1 = p1?.massnahmen.find(m => m.id === "M1");
     expect(m1).toBeDefined();
+  });
+});
+
+describe("reference area and efficiency class", () => {
+  it("energy values refer to AN; missing AN is estimated from Wohnfläche", () => {
+    expect(bezugsflaeche({ gebaeudenutzflaeche: 200, wohnflaeche: 160 })).toBe(200);
+    expect(bezugsflaeche({ wohnflaeche: 145 })).toBeCloseTo(180);
+  });
+
+  it("IST heating cost of the 1965 preset = 215 kWh/m² × 180 m² AN × 0,11 €/kWh", () => {
+    const g = PRESETS.efhNachkrieg.gebaeude;
+    expect(berechneHeizkosten(215, bezugsflaeche(g), g.heizung_typ)).toBe(4257);
+  });
+
+  it("class follows the Endenergie scale (A+ ≤ 30 … H > 250)", () => {
+    expect(berechneEffizienzklasse(30)).toBe("A+");
+    expect(berechneEffizienzklasse(155)).toBe("E");
+    expect(berechneEffizienzklasse(215)).toBe("G");
+    expect(berechneEffizienzklasse(260)).toBe("H");
+  });
+
+  it("score thresholds were rescaled from Wohnfläche to AN (145/180)", () => {
+    expect(SCORE_EMPFOHLEN_MAX).toBeCloseTo(10.5 * 145 / 180);
+    expect(SCORE_NICHT_EMPFOHLEN_MIN).toBeCloseTo(20 * 145 / 180);
   });
 });

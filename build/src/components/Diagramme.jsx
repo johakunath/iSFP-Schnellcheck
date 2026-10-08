@@ -16,16 +16,19 @@ const EEK_ZONEN = [
 ];
 
 export const EnergieVerlaufChart = ({ ist, kumuliert, heizkosten = 0 }) => {
-  const [metric, setMetric] = useState("pe");
+  const [metric, setMetric] = useState("ee");
   const W = 620, H = 380;
   const PAD = { top: 60, right: 36, bottom: 40, left: 52 };
   const pw = W - PAD.left - PAD.right;
   const ph = H - PAD.top - PAD.bottom;
 
   const METRICS = {
+    ee:         { label: "Endenergie · Effizienzklasse", unit: "kWh/(m²·a)", istVal: ist.endenergie,
+                  valFn: r => r.endenergie, fmtVal: v => `${Math.round(v)}`,
+                  ySnap: 25, yMin: 100, showEEK: true },
     pe:         { label: "Primärenergie", unit: "kWh/(m²·a)", istVal: ist.primaerenergie,
                   valFn: r => r.primaerenergie, fmtVal: v => `${Math.round(v)}`,
-                  ySnap: 25, yMin: 100, showEEK: true },
+                  ySnap: 25, yMin: 100, showEEK: false },
     co2:        { label: "CO₂", unit: "kg/(m²·a)", istVal: ist.co2,
                   valFn: r => r.co2, fmtVal: v => `${Number(v).toFixed(1)}`,
                   ySnap: 10, yMin: 20, showEEK: false },
@@ -37,7 +40,7 @@ export const EnergieVerlaufChart = ({ ist, kumuliert, heizkosten = 0 }) => {
   const cfg = METRICS[metric];
 
   const punkte = [
-    { label: "Heute", val: cfg.istVal, bg: "#6E2E1E", klasse: berechneEffizienzklasse(ist.primaerenergie) },
+    { label: "Heute", val: cfg.istVal, bg: "#6E2E1E", klasse: berechneEffizienzklasse(ist.endenergie) },
     ...kumuliert.map(r => ({
       label: r.paket.titel,
       val: cfg.valFn(r.nachher),
@@ -66,7 +69,7 @@ export const EnergieVerlaufChart = ({ ist, kumuliert, heizkosten = 0 }) => {
     <div style={{ background: "var(--surface)", border: "1.25px solid var(--bdr)", borderRadius: 3, padding: "24px 28px", marginTop: 32 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-          {[["pe", "PE"], ["co2", "CO₂"], ["heizkosten", "Kosten"]].map(([key, lbl]) => (
+          {[["ee", "EE"], ["pe", "PE"], ["co2", "CO₂"], ["heizkosten", "Kosten"]].map(([key, lbl]) => (
             <button key={key} onClick={() => setMetric(key)}
               style={{ fontSize: 10, fontFamily: "'Geist Mono', monospace", padding: "3px 9px",
                        borderRadius: 2, border: "1px solid var(--bdr)", cursor: "pointer",

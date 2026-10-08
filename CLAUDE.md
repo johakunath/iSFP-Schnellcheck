@@ -79,10 +79,15 @@ Each building has stufe (1–7) ratings for: `waende`, `dach`, `boden`, `fenster
 
 ### bewerteMassnahmen (priority scorer)
 
-`score = invest_netto / pe_saved` [€ per kWh PE saved]. Lower = better value.
+`score = invest_netto / pe_saved` [€ per kWh PE saved per year, whole building = ΔPE × AN]. Lower = better value.
 
-- `empfohlen: true` — score < **10.5** (absolute threshold, not relative)
-- `nichtEmpfohlen: true` — score > **20.0** or Infinity
+- `empfohlen: true` — score < `SCORE_EMPFOHLEN_MAX` (= 10.5 × 145/180 ≈ 8.46; rescaled when the area basis moved from Wohnfläche to AN so badges stay the same)
+- `nichtEmpfohlen: true` — score > `SCORE_NICHT_EMPFOHLEN_MIN` (= 20 × 145/180 ≈ 16.1) or Infinity
+
+### Reference area and efficiency class
+
+- All kWh/(m²·a) values (Endenergie, PE, CO₂) refer to the usable area **AN** (`bezugsflaeche(gebaeude)`, fallback Wohnfläche × 180/145), as in the Energieausweis. Heating costs = Endenergie × AN × price.
+- `berechneEffizienzklasse(endenergie)`: A+–H from **Endenergie** (Energieausweis scale, GEG Anlage 10). The BAFA iSFP additionally uses a 7-step PE colour scale; PE is shown separately and drives the €/kWh ranking.
 
 BADGE_EXEMPT roles (`pflichtschritt`, `enabler`, `systempfad`, `begleitkosten`) never receive badges.
 
@@ -128,9 +133,9 @@ Derived (useMemo):
 
 | Preset | Year | Heating | IST PE | EEK |
 |--------|------|---------|--------|-----|
-| efhNachkrieg | 1965 | Heizöl | 236 | G |
-| efh70er | 1978 | Erdgas Brennwert | 172 | F |
-| efh2000er | 2002 | Erdgas Brennwert | 118 | D |
+| efhNachkrieg | 1965 | Heizöl | 236 | G (EE 215) |
+| efh70er | 1978 | Erdgas Brennwert | 172 | E (EE 155) |
+| efh2000er | 2002 | Erdgas Brennwert | 118 | C (EE 98) |
 
 Applying a preset resets all state. efh70er has `bauteile_overrides: { fenster: 5 }` (windows already replaced).
 
@@ -142,7 +147,9 @@ Applying a preset resets all state. efh70er has `bauteile_overrides: { fenster: 
 |--|-----|------|
 | Primärenergie | 236 kWh/(m²·a) | 62 kWh/(m²·a) |
 | CO₂ | 63 kg/(m²·a) | 19 kg/(m²·a) |
-| EEK | G | B |
+| Endenergie | 215 kWh/(m²·a) | 41 kWh/(m²·a) |
+| EEK (from Endenergie) | G | A |
+| Heizkosten (× 180 m² AN) | 4.257 €/a | 1.624 €/a |
 | Investition | 139.800 € (M4 at auto variant „monoenergetisch“ = 29.000 €) | |
 | BEG-Förderung | 27.200 € (BEG 2026 default context; M4: 28.000 € cap × 46 %) | |
 | Eigenanteil | 112.600 € | |
@@ -250,7 +257,9 @@ After every task, verify the following invariants are still satisfied:
 | Subsidy amounts | BEG 2026 rules per measure; caps applied per measure instead of per calendar year; no WPB bonus, no Fachplanung/Baubegleitung (see `FOERDERREGELN` comment) |
 | Cost scaling | Geometric quantity model (square footprint); WP, PV and M1 stay lump sums |
 | Cost evidence | All `KOSTENANSAETZE` are `annahme` (undocumented, bundesweit) |
-| EEK basis | Class from Primärenergie with GEG Anlage-10 thresholds; real Energieausweis (GEG §86) classifies by Endenergie |
+| EEK basis | Energieausweis scale on Endenergie; iSFP PE colour scale not shown |
+| Prebound effect | IST heating costs come from the (Bedarfs-)Endenergie, which often overstates real consumption of unrenovated houses; users can enter their real bill under „Wirtschaftlichkeit“ |
+| WP sizing | Lump sum (12 kW basis); no heat-load-based cost scaling (no cost-per-kW evidence yet) |
 | Wohnfläche | Heuristic GNF / 1.3 when not from PDF |
 | WP COP | Wärmeverteilung affects WP impact through variant multipliers and flow-temperature malus, but no full hourly COP model |
 | CO₂ values | Target CO₂ is factor-based from Endenergie and carrier; per-measure CO₂ labels are still static hints |

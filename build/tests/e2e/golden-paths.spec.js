@@ -40,14 +40,14 @@ async function sidebarSumme(page, label) {
   return (await row.locator("span").last().innerText()).trim();
 }
 
-test("efhNachkrieg default selection: EEK B, Eigenanteil 112.600 € (BEG 2026)", async ({ page }) => {
+test("efhNachkrieg default selection: EEK A, Eigenanteil 112.600 € (BEG 2026)", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await loadApp(page);
   await selectPreset(page, "EFH Nachkriegszeit 1965");
   expect(await sidebarSumme(page, "Investition")).toMatch(/139[.,]800/);
   expect(await sidebarSumme(page, "Förderung")).toMatch(/27[.,]200/);
   expect(await sidebarSumme(page, "Eigenanteil")).toMatch(/112[.,]600/);
-  await expect(page.locator("#fahrplan").getByText("Kl. B")).toBeVisible();
+  await expect(page.locator("#fahrplan").getByText("Kl. A", { exact: true })).toBeVisible();
 });
 
 test("first load and clicking the same preset show identical results", async ({ page }) => {

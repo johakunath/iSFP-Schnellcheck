@@ -72,7 +72,7 @@ export function getWarum(measureId, ctx) {
         ? "Wände teilgedämmt — Aufdopplung lohnt nur bei sowieso fälliger Putzerneuerung."
         : "Fassade bereits gut gedämmt — Dämmung lohnt energetisch kaum.";
       const jetzt = nichtEmpfohlen
-        ? "Ihr €/kWh-Score liegt über 20 €/kWh — andere Maßnahmen bringen mehr Einsparung je investiertem Euro."
+        ? "Ihr €/kWh-Score liegt über der Schwelle für „nicht empfohlen“ — andere Maßnahmen bringen mehr Einsparung je investiertem Euro."
         : "Idealerweise gemeinsam mit fälliger Putzerneuerung umsetzen — Gerüstkosten bereits eingerechnet.";
       return { grund, jetzt };
     }
