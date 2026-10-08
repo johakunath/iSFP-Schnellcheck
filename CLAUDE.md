@@ -67,7 +67,7 @@ Derivation chain (all pure functions in `data.js`, used by App and by `berechneS
 
 1. `erstelleStartzustand(presetId)` — gebaeude, ist, bauteile (incl. `bauteile_overrides`), default measures. Used for initial state AND preset clicks.
 2. `erstelleEffektivenBauteilState(...)` — M7 active → `verteilung: 7`; `bestimmeWpVariante` resolves the WP variant (the only place that does).
-3. `erstelleBasisPakete(variante)` — M4 takes cost/quote of the variant (editor shows these as defaults).
+3. `erstelleBasisPakete(variante, gebaeude)` — M4 takes cost/quote of the variant; area-based costs are scaled by the quantity model (editor shows these as defaults).
 4. `erstelleEffektivePakete(...)` — + user `massnahmenOverrides` (overrides win over variant costs), sorted by score.
 5. `ordneAbgleichNachWp(...)` — M1 moves to the end of P3 when M4 is active → `dynamicPakete`.
 
@@ -86,9 +86,20 @@ Each building has stufe (1–7) ratings for: `waende`, `dach`, `boden`, `fenster
 
 BADGE_EXEMPT roles (`pflichtschritt`, `enabler`, `systempfad`, `begleitkosten`) never receive badges.
 
-### Subsidies (`berechneFoerderung`, `FOERDERREGELN`)
+### Subsidies (`berechneFoerderung`, `FOERDERREGELN`) — BEG ab 21.07.2026
 
-Single function for every Förder number on screen and in print. Demo simplifications (not BEG-exact) are listed in the comment above `FOERDERREGELN`: iSFP bonus also on the heat pump, flat +10 % Klimabonus for oil/gas replacement, cap 50 %, förderfähig = Investition − Sowieso-Anteil, no cost caps / income or efficiency bonus.
+Single function for every Förder number on screen and in print. Rules (KfW-Merkblatt 458 Stand 09/2026, BEG-EM-Richtlinie ab 21.07.2026):
+
+- Routing per measure via `foerderprogramm`: `heizung` (M4, KfW 458), `em_huelle` (M2/M3/M5), `em_optimierung` (M1/M7), none (M6).
+- Förderfähig = full measure cost (Umfeldmaßnahmen incl.), **no Sowieso deduction**; `ohnehin_anteil` is informational only.
+- EM: 15 % base; cap 30.000 € (60.000 € with BAFA-funded iSFP); iSFP bonus +5 % only on eligible cost above 30.000 €; minimum invest 2.000 € (optimisation 300 €).
+- Heizung: 30 % base + Klimageschwindigkeitsbonus 16 % (self-user; oil/coal/Gasetage/Nachtspeicher any age, gas/biomass ≥ 20 years; −4 points per half year, 0 from 08/2028) + income bonus 40/30/10 %; cap 70 % (80 % for income ≤ 30.000 €); eligible cost cap 28.000 € −750 € per half year; no iSFP bonus; hybrid only 60 % eligible.
+- Household context lives in App state `foerderKontext` (`DEFAULT_FOERDERKONTEXT`: self-user, > 50.000 €, iSFP yes, application period 0) and is passed as `gebaeude.foerderung`. It survives preset changes.
+- Simplifications: each measure = one application (caps per measure, not per calendar year), one dwelling, no WPB bonus (from 2027), no Fachplanung/Baubegleitung.
+
+### Quantity model (`berechneMengen`, `wendeMengenAn`)
+
+Area-based costs (`mengenbezug` in `kosten.js`: roof, façade, window, heated area) scale relative to `REFERENZ_GEBAEUDE` (= efhNachkrieg: 145 m² Wfl, 180 m² AN, 2 floors, EFH, pitched roof), which reproduces the registry quantities exactly. Footprint = AN ÷ floors; roof ∝ footprint (flat roof = footprint); façade ∝ √footprint × floors × exposed share (EFH/ZFH 1, DHH 0.75, RH 0.5); windows and floor heating ∝ Wohnfläche. Lump sums (M1, M4, M6) do not scale. User overrides win.
 
 ### Measure categories
 
@@ -133,8 +144,8 @@ Applying a preset resets all state. efh70er has `bauteile_overrides: { fenster: 
 | CO₂ | 63 kg/(m²·a) | 19 kg/(m²·a) |
 | EEK | G | B |
 | Investition | 139.800 € (M4 at auto variant „monoenergetisch“ = 29.000 €) | |
-| BEG-Förderung | 24.600 € (incl. +10 % Klimageschwindigkeitsbonus on M4) | |
-| Eigenanteil | 115.200 € | |
+| BEG-Förderung | 27.200 € (BEG 2026 default context; M4: 28.000 € cap × 46 %) | |
+| Eigenanteil | 112.600 € | |
 
 With variant „monovalent“ forced: Investition 142.800 €. Pinned by `data.test.js` (via `berechneSzenario`, the app path) and `tests/e2e/golden-paths.spec.js`. Update all together when changing impact functions, factors, costs, subsidy rules or presets.
 
@@ -236,14 +247,15 @@ After every task, verify the following invariants are still satisfied:
 
 | Area | Simplification |
 |------|---------------|
-| Subsidy amounts | Fixed Förderquoten; no income test, no Förderdeckel, no bonus-combination rules; see `FOERDERREGELN` comment for known deviations from BEG |
-| Cost scaling | Investment costs are fixed per reference EFH (~145 m²); they do not scale with Wohnfläche or geometry |
+| Subsidy amounts | BEG 2026 rules per measure; caps applied per measure instead of per calendar year; no WPB bonus, no Fachplanung/Baubegleitung (see `FOERDERREGELN` comment) |
+| Cost scaling | Geometric quantity model (square footprint); WP, PV and M1 stay lump sums |
 | Cost evidence | All `KOSTENANSAETZE` are `annahme` (undocumented, bundesweit) |
 | EEK basis | Class from Primärenergie with GEG Anlage-10 thresholds; real Energieausweis (GEG §86) classifies by Endenergie |
 | Wohnfläche | Heuristic GNF / 1.3 when not from PDF |
 | WP COP | Wärmeverteilung affects WP impact through variant multipliers and flow-temperature malus, but no full hourly COP model |
 | CO₂ values | Target CO₂ is factor-based from Endenergie and carrier; per-measure CO₂ labels are still static hints |
 | Multi-WE | Treats ZFH/DHH/RH identically to EFH |
-| Amortisation | Static energy prices only; no real energy price escalation (typically 2–3 %/year) |
+| Amortisation | Sidebar KPI static; 20-year chart uses escalation |
+| Legal basis | GEG replaced by GModG on 29.07.2026; PE/CO₂ factors still labelled GEG Anlage 4/9 (carry-over not verified) |
 | PV revenue | Fixed 10 kWp assumed; no shading, orientation, or roof-area checks |
 | PV EV quote | Fixed 35 %/60 % split; real value depends on household consumption profile |

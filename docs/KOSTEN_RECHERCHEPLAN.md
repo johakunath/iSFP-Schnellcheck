@@ -19,9 +19,10 @@ Keine Zahl ohne Evidenzgrad und Quelle.
 | Öltank-Rückbau, Gasanschluss | 2.500 € / 3.000–5.000 € | pauschal | Annahme | Begleitkosten |
 | Badsanierung | — | — | fehlt | neu |
 
-Strukturelle Lücke vor jeder Recherche: Kosten skalieren heute nicht mit dem Gebäude.
-€/m²-Werte sind erst sinnvoll, wenn Mengen (Dach-, Fassaden-, Fensterfläche, Heizlast)
-aus Wohnfläche, Geschossen und Gebäudetyp (EFH vs. DHH: eine Giebelwand weniger) abgeleitet werden.
+Mengenmodell ist umgesetzt (`berechneMengen` in data.js): Dach-, Fassaden-, Fenster- und
+beheizte Fläche werden aus Wohnfläche, Nutzfläche, Geschossen, Gebäudetyp (DHH 75 %, RH 50 %
+freie Außenwand) und Dachform abgeleitet. Belegte €/m²-Werte lassen sich daher direkt als
+`einheitspreis` eintragen. Offen: Heizlast für die WP (heute pauschal).
 
 ## 2. Evidenzklassen (Pflichtfeld `evidenz` + Kennzeichnung)
 
@@ -66,7 +67,7 @@ Nicht als Beleg verwenden: Kostenrechner von Vergleichs- und Vermittlungsportale
 
 | Schritt | Ergebnis | Aufwand |
 |---|---|---|
-| 1. Mengenmodell (Flächen/Heizlast aus Wfl., Geschosse, Typ EFH/DHH) | Kosten skalieren mit dem Haus | Code, 1 PR |
+| 1. Mengenmodell (Flächen aus Wfl., Geschosse, Typ EFH/DHH) | erledigt; Heizlast für WP offen | — |
 | 2. Referenzhaus Berlin festlegen (EFH + DHH, Baujahr, Flächen) | gemeinsame Basis für Angebote und Kennwerte | 1 h |
 | 3. BKI / IWU-BBSR für M5, M2, M3, M7 auswerten (Vollkosten + Sowieso-Anteil) | DE-dokumentiert, Spannen | Recherche |
 | 4. Regionalfaktor Berlin + Index aufs Bezugsjahr anwenden | „abgeleitet“, Region BE | gering |

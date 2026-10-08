@@ -10,6 +10,7 @@ import {
   getDefaultAktiveMassnahmen, summiereMassnahmen,
   bauteileAlsState, erstelleStartzustand, erstelleEffektivenBauteilState,
   erstelleBasisPakete, erstelleEffektivePakete, ordneAbgleichNachWp, berechneWirtschaftlichkeit,
+  DEFAULT_FOERDERKONTEXT, ANTRAGSZEITRAEUME, EINKOMMENSSTUFEN, FOERDERSTAND,
   EFFIZIENZ_FARBEN,
 } from "./data.js";
 import { DATENSTAND } from "./kosten.js";
@@ -155,6 +156,10 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [wirtschaftlichkeitOverrides, setWirtschaftlichkeitOverrides] = useState({});
   const [sanierungsstandOffen, setSanierungsstandOffen] = useState(false);
+  // Förderannahmen betreffen den Haushalt, nicht das Gebäude → bleiben beim Preset-Wechsel erhalten.
+  const [foerderKontext, setFoerderKontext] = useState(DEFAULT_FOERDERKONTEXT);
+  const [foerderOffen, setFoerderOffen] = useState(false);
+  const updateFoerderKontext = useCallback((feld, wert) => setFoerderKontext(prev => ({ ...prev, [feld]: wert })), []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
@@ -340,7 +345,9 @@ export default function App() {
   const resolvedWpVariante = wp.key;
 
   // Variante → Basiswerte (für den Editor); + Nutzer-Overrides, sortiert → effectivePakete.
-  const basisPakete = useMemo(() => erstelleBasisPakete(resolvedWpVariante), [resolvedWpVariante]);
+  const basisPakete = useMemo(() => erstelleBasisPakete(resolvedWpVariante, gebaeude), [resolvedWpVariante, gebaeude]);
+  // Gebäude + Förderannahmen: Grundlage aller Förderbeträge (berechneFoerderung liest gebaeude.foerderung).
+  const gebaeudeF = useMemo(() => ({ ...gebaeude, foerderung: foerderKontext }), [gebaeude, foerderKontext]);
   const effectivePakete = useMemo(
     () => erstelleEffektivePakete({ overrides: massnahmenOverrides, varianteKey: resolvedWpVariante, bauteile_state: effectiveBauteilState, gebaeude }),
     [massnahmenOverrides, resolvedWpVariante, effectiveBauteilState, gebaeude]
@@ -366,7 +373,7 @@ export default function App() {
   const wartungIstCalc  = wartungCalcResult.istJahr;
   const wartungZielCalc = wartungCalcResult.zielJahr;
   const effizienzklasse = useMemo(() => berechneEffizienzklasse(ist.primaerenergie), [ist.primaerenergie]);
-  const gebaeudeWithState = useMemo(() => ({ ...gebaeude, bauteile_state: effectiveBauteilState }), [gebaeude, effectiveBauteilState]);
+  const gebaeudeWithState = useMemo(() => ({ ...gebaeudeF, bauteile_state: effectiveBauteilState }), [gebaeudeF, effectiveBauteilState]);
   const k = useMemo(() => berechneNachMassnahmen(aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete), [aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete]);
   const kumuliert = useMemo(() => berechneKumuliert(aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete), [aktiveMassnahmen, ist, gebaeudeWithState, dynamicPakete]);
 
@@ -396,11 +403,11 @@ export default function App() {
     return dynamicPakete.map((paket) => {
       const aktiveInPaket = paket.massnahmen.filter((m) => aktiveMassnahmen.includes(m.id));
       if (aktiveInPaket.length === 0) return null;
-      const { eigenanteil } = summiereMassnahmen(aktiveInPaket, gebaeude);
+      const { eigenanteil } = summiereMassnahmen(aktiveInPaket, gebaeudeF);
       return { id: paket.id, nummer: paket.nummer, titel: paket.titel, farbe: paket.farbe, kosten: eigenanteil, massnahmen_aktiv: aktiveInPaket.map(m => m.id), massnahmen_aktiv_obj: aktiveInPaket.map(m => ({ id: m.id, kurztitel: m.kurztitel || m.id })) };
     }).filter(Boolean);
-  }, [dynamicPakete, aktiveMassnahmen, gebaeude]);
-  const warumCtx = useMemo(() => ({ bauteile_state: effectiveBauteilState, gebaeude, aktiveMassnahmen, wp }), [effectiveBauteilState, gebaeude, aktiveMassnahmen, wp]);
+  }, [dynamicPakete, aktiveMassnahmen, gebaeudeF]);
+  const warumCtx = useMemo(() => ({ bauteile_state: effectiveBauteilState, gebaeude: gebaeudeF, aktiveMassnahmen, wp }), [effectiveBauteilState, gebaeudeF, aktiveMassnahmen, wp]);
   const ergebnisProps = {
     effizienzklasse, k, ist, heizkosten, w: wirtschaftlichkeit, wohnflaeche: gebaeude.wohnflaeche,
     reportSummaryPackages, empfohleneMassnahmen, nichtEmpfohleneMassnahmen, warumCtx, scrollToTab,
@@ -453,7 +460,7 @@ export default function App() {
       </header>
 
       {/* Print-Title (nur im PDF) */}
-      <ISFPPrintReport ist={ist} k={k} heizkostenIst={heizkosten} aktivePakete={aktivePakete} aktiveMassnahmen={aktiveMassnahmen} gebaeude={gebaeude} kumuliert={kumuliert} effectivePakete={dynamicPakete} wirtschaftlichkeit={wirtschaftlichkeit} eskalationIst={effEskalIst} eskalationZiel={effEskalZiel} />
+      <ISFPPrintReport ist={ist} k={k} heizkostenIst={heizkosten} aktivePakete={aktivePakete} aktiveMassnahmen={aktiveMassnahmen} gebaeude={gebaeudeF} kumuliert={kumuliert} effectivePakete={dynamicPakete} wirtschaftlichkeit={wirtschaftlichkeit} eskalationIst={effEskalIst} eskalationZiel={effEskalZiel} />
 
       <main className="mx-auto max-w-[1400px] print-hide px-5 md:px-10" style={{ paddingTop: 36, paddingBottom: 80 }}>
 
@@ -505,9 +512,53 @@ export default function App() {
                 tooltip="Wird zur automatischen Ableitung der Bauteil-Noten verwendet (TABULA-Baualtersklassen)." />
               <NumberInput label="Wohneinheiten"        value={gebaeude.wohneinheiten}       onChange={v => updateGebaeude("wohneinheiten", v)} min={1} max={1000}
                 tooltip="Hat keinen Einfluss auf die Energierechnung in dieser Demo. Wird für die Dokumentation im Bericht verwendet." />
-              <NumberInput label="Wohnfläche"           value={gebaeude.wohnflaeche}         onChange={v => updateGebaeude("wohnflaeche", v)} unit="m²" min={20} />
+              <NumberInput label="Wohnfläche"           value={gebaeude.wohnflaeche}         onChange={v => updateGebaeude("wohnflaeche", v)} unit="m²" min={20}
+                tooltip="Bestimmt Heizkosten sowie Fenster- und Fußbodenheizungsfläche im Mengenmodell." />
               <NumberInput label="Gebäudenutzfläche AN" value={gebaeude.gebaeudenutzflaeche} onChange={v => updateGebaeude("gebaeudenutzflaeche", v)} unit="m²" min={20}
-                tooltip="AN = beheizbare Nettogrundfläche nach DIN V 18599. Bezugsfläche für GEG-Kennzahlen (PE, CO₂). Faustregel: AN ≈ 1,2–1,4 × Wohnfläche." />
+                tooltip="AN = beheizbare Nettogrundfläche nach DIN V 18599. Bezugsfläche für Energieausweis-Kennzahlen (PE, CO₂). Faustregel: AN ≈ 1,2–1,4 × Wohnfläche. Mengenmodell: AN ÷ Vollgeschosse = Grundfläche → Dach- und Fassadenfläche." />
+              <NumberInput label="Vollgeschosse"        value={gebaeude.vollgeschosse}       onChange={v => updateGebaeude("vollgeschosse", v)} min={1} max={4}
+                tooltip="Mengenmodell: mehr Geschosse bei gleicher Fläche → kleineres Dach, höhere Fassade." />
+              <div style={{ marginTop: 14 }}>
+                <button onClick={() => setFoerderOffen(o => !o)} aria-expanded={foerderOffen}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                           width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                  <div style={{ fontSize: 11, color: "var(--sec)", fontFamily: "'Geist Mono', monospace",
+                                textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    Förderannahmen
+                  </div>
+                  <span style={{ fontSize: 11, color: "var(--acc)" }}>{foerderOffen ? "▲" : "▼"}</span>
+                </button>
+                {!foerderOffen && (
+                  <div style={{ fontSize: 10, color: "var(--sec)", marginTop: 3, lineHeight: 1.4 }}>
+                    {[
+                      foerderKontext.selbstnutzer ? "Selbstnutzer" : "Vermietet",
+                      `Einkommen ${EINKOMMENSSTUFEN.find(e => e.value === foerderKontext.einkommen)?.label}`,
+                      foerderKontext.isfp ? "mit iSFP" : "ohne iSFP",
+                      `Heizungsantrag ${ANTRAGSZEITRAEUME[foerderKontext.antragszeitraum]?.label}`,
+                    ].join(" · ")}
+                  </div>
+                )}
+                {foerderOffen && (
+                  <div style={{ marginTop: 8 }}>
+                    <SelectInput label="Selbstnutzung" value={foerderKontext.selbstnutzer ? "ja" : "nein"}
+                      onChange={v => updateFoerderKontext("selbstnutzer", v === "ja")}
+                      options={[{ value: "ja", label: "ja" }, { value: "nein", label: "vermietet" }]}
+                      tooltip="Klimageschwindigkeits- und Einkommensbonus der Heizungsförderung gibt es nur für selbstnutzende Eigentümer." />
+                    <SelectInput label="Haushaltseinkommen" value={foerderKontext.einkommen}
+                      onChange={v => updateFoerderKontext("einkommen", v)} options={EINKOMMENSSTUFEN}
+                      tooltip="Zu versteuerndes Haushaltseinkommen (Mittel der letzten zwei Jahre). Ohne Angabe: > 50.000 €. Einkommensbonus 40 / 30 / 10 % bis 30.000 / 40.000 / 50.000 €; Kinder unter 18 senken das anzusetzende Einkommen einmalig um 10.000 €." />
+                    <SelectInput label="iSFP (BAFA-gefördert)" value={foerderKontext.isfp ? "ja" : "nein"}
+                      onChange={v => updateFoerderKontext("isfp", v === "ja")}
+                      options={[{ value: "ja", label: "ja" }, { value: "nein", label: "nein" }]}
+                      tooltip="Ein geförderter iSFP hebt die Höchstgrenze für Hülle/Optimierung auf 60.000 € und gibt +5 % auf förderfähige Kosten über 30.000 €. Dieser Schnellcheck ist kein solcher iSFP." />
+                    <SelectInput label="Antrag Heizungstausch" value={String(foerderKontext.antragszeitraum)}
+                      onChange={v => updateFoerderKontext("antragszeitraum", Number(v))}
+                      options={ANTRAGSZEITRAEUME.map(z => ({ value: String(z.index), label: z.label }))}
+                      tooltip="Klimageschwindigkeitsbonus 16 % bis 31.01.2027, danach −4 Punkte je Halbjahr, ab Aug 2028 entfallen. Förderfähige Kosten 28.000 €, danach −750 € je Halbjahr." />
+                    <div style={{ fontSize: 10, color: "var(--sec)", marginTop: 6, lineHeight: 1.4 }}>Stand: {FOERDERSTAND}. Keine Förderzusage.</div>
+                  </div>
+                )}
+              </div>
             </Card>
 
             <Card>
@@ -643,7 +694,7 @@ export default function App() {
                 aktiveMassnahmen={aktiveMassnahmen}
                 empfohleneMassnahmen={empfohleneMassnahmen}
                 nichtEmpfohleneMassnahmen={nichtEmpfohleneMassnahmen}
-                gebaeude={gebaeude}
+                gebaeude={gebaeudeF}
                 bauteile_state={effectiveBauteilState}
                 wp={wp}
                 onWpVarianteChange={setWpVariante} />

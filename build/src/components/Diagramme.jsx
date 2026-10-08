@@ -185,7 +185,7 @@ export const KostenvergleichChart = ({ w, eskalationIst, eskalationZiel }) => {
                       fontFamily: "'Geist Mono', monospace", color: "var(--acc)" }}>
           20-Jahr-Kostenvergleich · {eskalHeader}
         </div>
-        <Tooltip content={<span>Nur laufende Kosten. Nicht enthalten: Heizungsersatz (ca. 12–18 T€), GEG-Pflichten bei Eigentümerwechsel (§71 GEG: 65 % EE), EEK-Wertverlust (F/G: bis −10 % Marktwert).</span>}>
+        <Tooltip content={<span>Nur laufende Kosten. Nicht enthalten: Heizungsersatz (ca. 12–18 T€), steigender Bioanteil für neue Öl-/Gaskessel ab 2029 (GModG), EEK-Wertverlust (F/G: bis −10 % Marktwert).</span>}>
           <span style={{ color: "var(--acc)", cursor: "help" }}><InfoIcon size={11} /></span>
         </Tooltip>
       </div>

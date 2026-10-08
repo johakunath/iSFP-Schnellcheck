@@ -11,7 +11,8 @@
 //  - Regionale Werte (z. B. BE) überschreiben den bundesweiten Ansatz nur,
 //    wenn sie in KOSTENANSAETZE_REGIONAL hinterlegt sind. Sonst greift DE als
 //    Fallback und wird als solcher gekennzeichnet.
-//  - wert = Punktwert in € für das Referenz-EFH (~145 m² Wohnfläche), brutto.
+//  - wert = Punktwert in € für das Referenzgebäude (REFERENZ_GEBAEUDE), brutto.
+//  - mengenbezug: Ansatz skaliert mit dieser Menge aus berechneMengen (sonst pauschal).
 // ============================================================================
 
 export const DATENSTAND = "Mai 2026";
@@ -20,6 +21,13 @@ export const EVIDENZ = {
   dokumentiert: "Dokumentiert", // Wert direkt aus belastbarer Quelle übernommen
   abgeleitet:   "Abgeleitet",   // aus dokumentierten Einheitskosten × Menge berechnet
   annahme:      "Annahme",      // keine belastbare Quelle hinterlegt
+};
+
+// Referenzgebäude, für das die Punktwerte (wert, menge) gelten. Das Mengenmodell
+// (berechneMengen in data.js) skaliert flächenbezogene Ansätze relativ zu diesem Haus.
+// Entspricht dem Preset efhNachkrieg.
+export const REFERENZ_GEBAEUDE = {
+  typ: "Einfamilienhaus", wohnflaeche: 145, gebaeudenutzflaeche: 180, vollgeschosse: 2, dach: "Satteldach",
 };
 
 export const REGIONEN = {
@@ -51,7 +59,7 @@ export const KOSTENANSAETZE = {
     label: "Dachdämmung",
     wert: 22000, ohnehin: 4500,
     einheit: "€/m² Dachfläche",
-    einheitspreis: 180,
+    einheitspreis: 180, mengenbezug: "dachflaeche",
     menge: { wert: 120, einheit: "m² Dachfläche" },
     herleitung: "~180 €/m² × ~120 m² Dachfläche",
   },
@@ -60,7 +68,7 @@ export const KOSTENANSAETZE = {
     label: "Fenstertausch",
     wert: 19000, ohnehin: 6500,
     einheit: "€/m² Fensterfläche",
-    einheitspreis: 750,
+    einheitspreis: 750, mengenbezug: "fensterflaeche",
     menge: { wert: 25, einheit: "m² Fensterfläche" },
     herleitung: "~750 €/m² × ~25 m² Fensterfläche",
   },
@@ -78,7 +86,7 @@ export const KOSTENANSAETZE = {
     label: "Fassadendämmung (WDVS)",
     wert: 38000, ohnehin: 12000,
     einheit: "€/m² Fassade",
-    einheitspreis: 190,
+    einheitspreis: 190, mengenbezug: "fassadenflaeche",
     menge: { wert: 200, einheit: "m² Fassade" },
     herleitung: "~190 €/m² × ~200 m² Fassade",
   },
@@ -96,7 +104,7 @@ export const KOSTENANSAETZE = {
     label: "Erneuerung Wärmeverteilung (Fußbodenheizung Trockenbau)",
     wert: 12000, ohnehin: 500,
     einheit: "€/m² beheizte Fläche",
-    einheitspreis: 100,
+    einheitspreis: 100, mengenbezug: "beheizteFlaeche",
     menge: { wert: 120, einheit: "m²" },
     herleitung: "~100 €/m² × ~120 m²",
   },

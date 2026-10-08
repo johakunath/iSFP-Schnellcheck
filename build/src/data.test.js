@@ -30,8 +30,13 @@ import {
   WP_VARIANTEN,
   OPTIONS_HEIZUNG,
   berechneSzenario,
+  berechneMengen,
+  wendeMengenAn,
+  heizungsFoerderParameter,
+  klimabonusBerechtigt,
+  DEFAULT_FOERDERKONTEXT,
 } from "./data.js";
-import { KOSTENANSAETZE, kostenAnsatzFuer, kostenStatusText } from "./kosten.js";
+import { KOSTENANSAETZE, REFERENZ_GEBAEUDE, kostenAnsatzFuer, kostenStatusText } from "./kosten.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -207,10 +212,10 @@ describe("berechneNachMassnahmen (efhNachkrieg, all measures, app path)", () => 
     expect(k.effizienzklasse).toBe("B");
   });
 
-  it("Investition 139.800 € · Förderung 24.600 € · Eigenanteil 115.200 € (M4 at monoenergetisch price)", () => {
+  it("Investition 139.800 € · Förderung 27.200 € · Eigenanteil 112.600 € (BEG 2026, M4 monoenergetisch)", () => {
     expect(k.invest_gesamt).toBe(139800);
-    expect(k.foerderung_gesamt).toBe(24600);
-    expect(k.eigenanteil).toBe(115200);
+    expect(k.foerderung_gesamt).toBe(27200);
+    expect(k.eigenanteil).toBe(112600);
   });
 
   it("eigenanteil = invest_gesamt - foerderung_gesamt", () => {
@@ -229,8 +234,9 @@ describe("berechneNachMassnahmen (efh70er, all measures, fenster=5 override, app
     expect(k.effizienzklasse).toBe("B");
   });
 
-  it("Eigenanteil = 115.200 € (incl. Klimageschwindigkeitsbonus for Erdgas→WP)", () => {
-    expect(k.eigenanteil).toBe(115200);
+  it("Eigenanteil = 123.520 € (larger house; gas boiler from 2015 → no Klimageschwindigkeitsbonus)", () => {
+    expect(k.invest_gesamt).toBe(147500);
+    expect(k.eigenanteil).toBe(123520);
   });
 });
 
@@ -305,30 +311,65 @@ describe("bestimmeWpVariante", () => {
   });
 });
 
-describe("berechneFoerderung", () => {
-  const m = (over) => ({ id: "MX", investition: 10000, ohnehin_anteil: 2000, foerderquote: 0.15, ...over });
+describe("berechneFoerderung (BEG ab 21.07.2026)", () => {
+  const huelle = (over) => ({ id: "MX", foerderprogramm: "em_huelle", investition: 20000, ohnehin_anteil: 5000, foerderquote: 0.15, ...over });
+  const wp = (over) => ({ id: "M4", foerderprogramm: "heizung", heizungstausch: true, investition: 29000, ohnehin_anteil: 5000, foerderquote: 0.30, ...over });
+  const geb = (foerderung = {}, over = {}) => ({ heizung_typ: "Heizöl", heizung_bj: 2008, foerderung, ...over });
 
-  it("envelope measure: (invest − sowieso) × (15 % + 5 % iSFP)", () => {
-    const f = berechneFoerderung(m(), { heizung_typ: "Heizöl" });
-    expect(f.foerderfaehig).toBe(8000);
-    expect(f.quote).toBeCloseTo(0.20);
-    expect(f.betrag).toBeCloseTo(1600);
+  it("envelope: 15 % on full eligible cost, Sowieso share is not deducted", () => {
+    const f = berechneFoerderung(huelle(), geb());
+    expect(f.foerderfaehig).toBe(20000);
+    expect(f.betrag).toBeCloseTo(3000);
   });
 
-  it("heat pump replacing oil/gas gets +10 % Klimabonus, capped at 50 %", () => {
-    const wp = m({ heizungstausch: true, foerderquote: 0.30 });
-    expect(berechneFoerderung(wp, { heizung_typ: "Heizöl" }).quote).toBeCloseTo(0.45);
-    expect(berechneFoerderung(wp, { heizung_typ: "Biomasse (Pellets)" }).quote).toBeCloseTo(0.35);
-    expect(berechneFoerderung(m({ heizungstausch: true, foerderquote: 0.45 }), { heizung_typ: "Erdgas Brennwert" }).quote).toBe(0.5);
+  it("envelope: iSFP bonus only on eligible cost above 30.000 €, cap 60.000 € with iSFP / 30.000 € without", () => {
+    expect(berechneFoerderung(huelle({ investition: 38000 }), geb()).betrag).toBeCloseTo(38000 * 0.15 + 8000 * 0.05);
+    expect(berechneFoerderung(huelle({ investition: 80000 }), geb()).betrag).toBeCloseTo(60000 * 0.15 + 30000 * 0.05);
+    expect(berechneFoerderung(huelle({ investition: 80000 }), geb({ isfp: false })).betrag).toBeCloseTo(30000 * 0.15);
   });
 
-  it("no base quote → no subsidy, no bonus", () => {
-    expect(berechneFoerderung(m({ foerderquote: 0 })).betrag).toBe(0);
-    expect(berechneFoerderung(m({ foerderquote: undefined })).betrag).toBe(0);
+  it("envelope below minimum investment (2.000 €) gets nothing; optimisation minimum is 300 €", () => {
+    expect(berechneFoerderung(huelle({ investition: 1500 }), geb()).betrag).toBe(0);
+    expect(berechneFoerderung(huelle({ investition: 1500, foerderprogramm: "em_optimierung" }), geb()).betrag).toBeCloseTo(225);
   });
 
-  it("sowieso share larger than invest never yields negative subsidy", () => {
-    expect(berechneFoerderung(m({ ohnehin_anteil: 20000 })).betrag).toBe(0);
+  it("heat pump: cost cap 28.000 €, 30 % + 16 % Klimageschwindigkeitsbonus for oil, no iSFP bonus", () => {
+    const f = berechneFoerderung(wp(), geb());
+    expect(f.foerderfaehig).toBe(28000);
+    expect(f.betrag).toBeCloseTo(28000 * 0.46);
+    expect(f.bestandteile.map(b => b.label).join()).not.toMatch(/iSFP/);
+  });
+
+  it("Klimageschwindigkeitsbonus and cost cap fall every half year; bonus is 0 from Aug 2028", () => {
+    expect(heizungsFoerderParameter(0)).toEqual({ klimabonus: 0.16, hoechst: 28000 });
+    expect(heizungsFoerderParameter(1)).toEqual({ klimabonus: 0.12, hoechst: 27250 });
+    expect(heizungsFoerderParameter(4).klimabonus).toBe(0);
+    expect(heizungsFoerderParameter(8).hoechst).toBe(22000);
+    expect(berechneFoerderung(wp(), geb({ antragszeitraum: 4 })).betrag).toBeCloseTo(25000 * 0.30);
+  });
+
+  it("Klimageschwindigkeitsbonus needs a self-user and, for gas, a boiler at least 20 years old", () => {
+    expect(klimabonusBerechtigt({ heizung_typ: "Erdgas Brennwert", heizung_bj: 2015 }, { ...DEFAULT_FOERDERKONTEXT })).toBe(false);
+    expect(klimabonusBerechtigt({ heizung_typ: "Erdgas Brennwert", heizung_bj: 2006 }, { ...DEFAULT_FOERDERKONTEXT })).toBe(true);
+    expect(klimabonusBerechtigt({ heizung_typ: "Heizöl", heizung_bj: 2020 }, { ...DEFAULT_FOERDERKONTEXT, selbstnutzer: false })).toBe(false);
+    expect(klimabonusBerechtigt({ heizung_typ: "Fernwärme (Gas-KWK)", heizung_bj: 1990 }, { ...DEFAULT_FOERDERKONTEXT })).toBe(false);
+  });
+
+  it("income bonus 40/30/10 %, total capped at 70 % (80 % for lowest income tier)", () => {
+    expect(berechneFoerderung(wp(), geb({ einkommen: "bis50" })).quoteFoerderfaehig).toBeCloseTo(0.56);
+    expect(berechneFoerderung(wp(), geb({ einkommen: "bis40" })).quoteFoerderfaehig).toBeCloseTo(0.70);
+    expect(berechneFoerderung(wp(), geb({ einkommen: "bis30" })).quoteFoerderfaehig).toBeCloseTo(0.80);
+    expect(berechneFoerderung(wp(), geb({ einkommen: "bis30", selbstnutzer: false })).quoteFoerderfaehig).toBeCloseTo(0.30);
+  });
+
+  it("hybrid: only the heat-pump share (60 %) is eligible", () => {
+    const f = berechneFoerderung(wp({ investition: 24000, foerderfaehigAnteil: 0.6 }), geb());
+    expect(f.foerderfaehig).toBeCloseTo(14400);
+  });
+
+  it("no base quote → no subsidy", () => {
+    expect(berechneFoerderung(huelle({ foerderquote: 0 }), geb()).betrag).toBe(0);
+    expect(berechneFoerderung(huelle({ foerderquote: undefined }), geb()).betrag).toBe(0);
   });
 
   it("summiereMassnahmen matches berechneNachMassnahmen totals", () => {
@@ -337,6 +378,49 @@ describe("berechneFoerderung", () => {
     const sum = summiereMassnahmen(aktiv, gebaeude);
     expect(Math.round(sum.invest)).toBe(k.invest_gesamt);
     expect(Math.round(sum.foerderung)).toBe(k.foerderung_gesamt);
+  });
+});
+
+describe("Mengenmodell (berechneMengen / wendeMengenAn)", () => {
+  it("reference building reproduces the registry quantities exactly", () => {
+    const m = berechneMengen(REFERENZ_GEBAEUDE);
+    expect(m.dachflaeche).toBeCloseTo(KOSTENANSAETZE.M2.menge.wert);
+    expect(m.fassadenflaeche).toBeCloseTo(KOSTENANSAETZE.M5.menge.wert);
+    expect(m.fensterflaeche).toBeCloseTo(KOSTENANSAETZE.M3.menge.wert);
+    expect(m.beheizteFlaeche).toBeCloseTo(KOSTENANSAETZE.M7.menge.wert);
+  });
+
+  it("semi-detached and terraced houses have less façade than a detached house of the same size", () => {
+    const efh = berechneMengen(REFERENZ_GEBAEUDE).fassadenflaeche;
+    expect(berechneMengen({ ...REFERENZ_GEBAEUDE, typ: "Doppelhaushälfte" }).fassadenflaeche).toBeCloseTo(efh * 0.75);
+    expect(berechneMengen({ ...REFERENZ_GEBAEUDE, typ: "Reihenhaus" }).fassadenflaeche).toBeCloseTo(efh * 0.5);
+  });
+
+  it("larger houses get proportionally more window/heated area; flat roof = footprint", () => {
+    const gross = berechneMengen({ ...REFERENZ_GEBAEUDE, wohnflaeche: 290, gebaeudenutzflaeche: 360 });
+    expect(gross.fensterflaeche).toBeCloseTo(50);
+    expect(gross.dachflaeche).toBeCloseTo(240);
+    expect(berechneMengen({ ...REFERENZ_GEBAEUDE, dach: "Flachdach" }).dachflaeche).toBeCloseTo(90);
+  });
+
+  it("area-based measures scale cost and Sowieso share; lump-sum measures stay unchanged", () => {
+    const mengen = berechneMengen({ ...REFERENZ_GEBAEUDE, typ: "Doppelhaushälfte" });
+    const alle = MASSNAHMENPAKETE.flatMap(p => p.massnahmen);
+    const m5 = wendeMengenAn(alle.find(m => m.id === "M5"), mengen);
+    expect(m5.investition).toBe(28500);
+    expect(m5.ohnehin_anteil).toBe(9000);
+    const m1 = alle.find(m => m.id === "M1");
+    expect(wendeMengenAn(m1, mengen)).toBe(m1);
+  });
+
+  it("missing or invalid areas fall back to the reference building", () => {
+    const m = berechneMengen({ typ: "Einfamilienhaus" });
+    expect(m.fassadenflaeche).toBeCloseTo(200);
+  });
+
+  it("user overrides still win over scaled costs", () => {
+    const { pakete } = appPfad("dhh1990", ALL_IDS, { overrides: { M5: { investition: 10000 } } });
+    expect(pakete.flatMap(p => p.massnahmen).find(m => m.id === "M5").investition).toBe(10000);
   });
 });
 
@@ -574,6 +658,12 @@ describe("getDefaultAktiveMassnahmen", () => {
     const bs = Object.fromEntries(ableiteBauteile(gebaeude.baujahr, gebaeude.heizung_typ, gebaeude.lueftung, gebaeude.warmwasser).map(b => [b.id, b.note]));
     const ids = getDefaultAktiveMassnahmen(gebaeude, bs);
     expect(ids).not.toContain("M4");
+  });
+
+  it("electric direct heating (Nachtspeicher): M4 active", () => {
+    const gebaeude = { ...PRESETS.efhNachkrieg.gebaeude, heizung_typ: "Elektroheizung" };
+    const bs = Object.fromEntries(ableiteBauteile(gebaeude.baujahr, gebaeude.heizung_typ, gebaeude.lueftung, gebaeude.warmwasser).map(b => [b.id, b.note]));
+    expect(getDefaultAktiveMassnahmen(gebaeude, bs)).toContain("M4");
   });
 
   it("PV building: M6 NOT active (already installed)", () => {

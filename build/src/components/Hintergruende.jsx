@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FOERDERREGELN, berechneSzenario, berechneHeizkosten, preisFuerHeizung, traegerFuerHeizung, summiereMassnahmen } from "../data.js";
+import { FOERDERREGELN, FOERDERSTAND, berechneSzenario, berechneHeizkosten, preisFuerHeizung, traegerFuerHeizung, summiereMassnahmen } from "../data.js";
 import { DATENSTAND } from "../kosten.js";
 import { fmt, fmtEur } from "../helpers.jsx";
 
@@ -105,7 +105,7 @@ const Hintergruende = ({ k }) => {
                   Sie geben Gebäudedaten ein — Baujahr, Heizung, Wohnfläche, Bauteil-Zustand — und erhalten einen priorisierten Sanierungsfahrplan mit Energiekennzahlen, Kosten und BEG-Förderung. Das Tool ist kein BAFA-zertifizierter iSFP, sondern ein Demonstrator auf Basis realer Marktdaten 2026.
                 </Sub>
                 <Sub title="Woher kommen die Energiezahlen?">
-                  <b>Endenergie</b> ist die dem Gebäude zugeführte Energie (Öl, Gas, Strom). Die Maßnahmen schätzen zuerst die Endenergie-Änderung. <b>Primärenergie</b> = Endenergie × Primärenergiefaktor nach GEG Anlage 4; <b>CO₂</b> = Endenergie × Emissionsfaktor nach GEG Anlage 9. Die <b>Effizienzklasse A+–H</b> wird in diesem Tool aus der Primärenergie gebildet (Farbskala im iSFP-Stil). Achtung: Der Energieausweis nach GEG §86 klassifiziert nach Endenergie — die Klassen sind daher nicht direkt mit einem Energieausweis vergleichbar. Fernwärme nutzt Demo-Fallbackwerte, weil reale Energieausweise netzspezifische Faktoren verwenden.
+                  <b>Endenergie</b> ist die dem Gebäude zugeführte Energie (Öl, Gas, Strom). Die Maßnahmen schätzen zuerst die Endenergie-Änderung. <b>Primärenergie</b> = Endenergie × Primärenergiefaktor nach GEG Anlage 4; <b>CO₂</b> = Endenergie × Emissionsfaktor nach GEG Anlage 9 (Faktoren aus dem GEG; seit 29.07.2026 gilt das GModG — Übernahme der Faktoren nicht geprüft). Die <b>Effizienzklasse A+–H</b> wird in diesem Tool aus der Primärenergie gebildet (Farbskala im iSFP-Stil). Achtung: Der Energieausweis klassifiziert nach Endenergie — die Klassen sind daher nicht direkt mit einem Energieausweis vergleichbar. Fernwärme nutzt Demo-Fallbackwerte, weil reale Energieausweise netzspezifische Faktoren verwenden.
                   <br /><br />
                   Für den Zielzustand werden PE und CO₂ nach jedem Paket neu aus der verbleibenden Endenergie und dem dann aktiven Energieträger berechnet. Bei Wärmepumpen-Szenarien wechselt der Ziel-Energieträger auf WP-Strom; bei Fernwärme bleiben die Werte bewusst als Demo-Fallback markiert, weil Netzbetreiber-Faktoren im echten Energieausweis abweichen können. Die kompakten CO₂-Hinweise an einzelnen Maßnahmen zeigen nur die grobe Richtung, nicht die verbindliche Endsumme.
                 </Sub>
@@ -113,9 +113,13 @@ const Hintergruende = ({ k }) => {
                   Jede Maßnahme erhält eine Punktzahl: Netto-Investition ÷ eingesparte Primärenergie [€/kWh PE]. Niedrig = wirtschaftlich sinnvoll. Die Pakete werden nach dieser Punktzahl sortiert und aktualisieren sich automatisch, wenn Sie Gebäudedaten oder Bauteil-Stufen ändern. Die <b>★ Empfohlen</b>-Markierung zeigt Maßnahmen mit Score unter 10,5 €/kWh PE — besonders wirtschaftlich für Ihr Gebäude. <b>✕ Nicht empfohlen</b> kennzeichnet Maßnahmen mit Score über 20 €/kWh PE oder ohne messbaren Primärenergie-Effekt.
                 </Sub>
                 <Sub title="Wie werden die Förderungen berechnet?">
-                      <b>Im Modell</b>: förderfähig = Investition − Sowieso-Anteil. Gebäudehülle, Fenster, Wärmeverteilung und Abgleich: {Math.round(FOERDERREGELN.isfpBonus * 100 + 15)} % ({"15 % BEG EM + "}{Math.round(FOERDERREGELN.isfpBonus * 100)} % iSFP-Bonus). Wärmepumpe: 30 % + {Math.round(FOERDERREGELN.isfpBonus * 100)} % iSFP-Bonus + {Math.round(FOERDERREGELN.klimaBonus * 100)} % pauschaler Klimabonus beim Ersatz von Öl/Gas, gedeckelt bei {Math.round(FOERDERREGELN.maxQuote * 100)} %. PV: kein Zuschuss.
+                      Stand: {FOERDERSTAND}. Förderfähig sind die Gesamtkosten der Maßnahme inkl. Umfeldmaßnahmen (Gerüst, Neueindeckung, Putz, Rückbau der Altanlage) — Sowieso-Kosten werden nicht abgezogen.
                       <br /><br />
-                      <b>Vereinfachungen gegenüber der BEG</b>: Die BEG fördert die förderfähigen Gesamtkosten ohne Sowieso-Abzug; der iSFP-Bonus gilt nicht für den Wärmeerzeuger; der Klimageschwindigkeitsbonus ist höher, zeitlich degressiv und an Selbstnutzung und Alter der Altheizung gebunden; Einkommens- und Effizienzbonus sowie Höchstgrenzen fehlen. Aktuelle Förderbedingungen vor Antrag prüfen.
+                      <b>Gebäudehülle, Wärmeverteilung, Abgleich (BAFA)</b>: 15 %. Höchstgrenze {fmtEur(FOERDERREGELN.em.hoechstOhneIsfp)}, mit gefördertem iSFP {fmtEur(FOERDERREGELN.em.hoechstMitIsfp)} je Wohneinheit und Jahr. iSFP-Bonus +5 % nur auf den Teil über {fmtEur(FOERDERREGELN.em.isfpSchwelle)}.
+                      <br /><br />
+                      <b>Wärmepumpe (KfW 458)</b>: 30 % Grundförderung, Klimageschwindigkeitsbonus 16 % (Selbstnutzer; Öl-, Kohle-, Gasetagen-, Nachtspeicherheizung oder Gas/Biomasse ab 20 Jahren; sinkt je Halbjahr um 4 Punkte, ab Aug 2028 null), Einkommensbonus 40 / 30 / 10 %. Gedeckelt bei 70 % (80 % bis 30.000 € Einkommen). Förderfähige Kosten höchstens {fmtEur(FOERDERREGELN.heizung.hoechstStart)}, danach −750 € je Halbjahr. Kein iSFP-Bonus. Hybrid: nur der WP-Anteil.
+                      <br /><br />
+                      <b>Vereinfachungen</b>: jede Maßnahme zählt als eigener Antrag (Höchstgrenzen gelten real je Kalenderjahr), nur eine Wohneinheit, Bonus für besonders ineffiziente Gebäude (ab 2027) und Fachplanung/Baubegleitung (50 %) nicht berücksichtigt. Ihre Angaben unter „Förderannahmen“ steuern Boni und Antragszeitpunkt. Vor Antrag aktuelle Bedingungen bei KfW/BAFA prüfen.
                     </Sub>
                 <Sub title="Beispielrechnung — EFH Nachkriegszeit 1965 (Standardauswahl, live berechnet)">
                       <pre style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11.5, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--body)", margin: 0 }}>{beispielText()}</pre>

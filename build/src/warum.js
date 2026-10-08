@@ -3,7 +3,7 @@
 // Neue Maßnahmen (z. B. Badsanierung) ergänzen hier einen case; ohne case
 // bleibt der Warum-Bereich leer.
 // ============================================================================
-import { WP_VARIANTEN, vorlauftemperaturFuer } from "./data.js";
+import { WP_VARIANTEN, vorlauftemperaturFuer, heizungsFoerderParameter, klimabonusBerechtigt, DEFAULT_FOERDERKONTEXT } from "./data.js";
 
 // ctx.wp = Ergebnis von bestimmeWpVariante (gleiche Variante wie in der Rechnung)
 export function getWarum(measureId, ctx) {
@@ -55,7 +55,13 @@ export function getWarum(measureId, ctx) {
         ? "Nach Wärmeverteilung-Umbau einbauen — dann ist Monovalent-Betrieb (höchster COP) erreichbar."
         : (aktiveMassnahmen.includes("M2") || aktiveMassnahmen.includes("M5"))
         ? "Nach Hüllsanierung einbauen — WP kann kleiner dimensioniert werden, was Investition senkt."
-        : "GEG §71 ab 2026 macht erneuerbare Wärmeerzeugung beim Heizungstausch zur Pflicht — frühzeitig planen.";
+        : (() => {
+            const kontext = { ...DEFAULT_FOERDERKONTEXT, ...(gebaeude.foerderung || {}) };
+            const { klimabonus } = heizungsFoerderParameter(kontext.antragszeitraum);
+            return klimabonus > 0 && klimabonusBerechtigt(gebaeude, kontext)
+              ? `Klimageschwindigkeitsbonus aktuell ${Math.round(klimabonus * 100)} %, sinkt je Halbjahr um 4 Punkte und entfällt ab Aug 2028 — früher Antrag lohnt sich.`
+              : "Seit dem GModG (29.07.2026) gibt es keine 65-%-EE-Pflicht mehr; neue Öl-/Gaskessel brauchen aber ab 2029 einen steigenden Bioanteil.";
+          })();
       return { grund, jetzt };
     }
     case "M5": {

@@ -40,13 +40,13 @@ async function sidebarSumme(page, label) {
   return (await row.locator("span").last().innerText()).trim();
 }
 
-test("efhNachkrieg default selection: EEK B, Eigenanteil 115.200 €", async ({ page }) => {
+test("efhNachkrieg default selection: EEK B, Eigenanteil 112.600 € (BEG 2026)", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await loadApp(page);
   await selectPreset(page, "EFH Nachkriegszeit 1965");
   expect(await sidebarSumme(page, "Investition")).toMatch(/139[.,]800/);
-  expect(await sidebarSumme(page, "Förderung")).toMatch(/24[.,]600/);
-  expect(await sidebarSumme(page, "Eigenanteil")).toMatch(/115[.,]200/);
+  expect(await sidebarSumme(page, "Förderung")).toMatch(/27[.,]200/);
+  expect(await sidebarSumme(page, "Eigenanteil")).toMatch(/112[.,]600/);
   await expect(page.locator("#fahrplan").getByText("Kl. B")).toBeVisible();
 });
 
@@ -106,8 +106,8 @@ test("MassnahmenEditor: override M4 Investition updates Eigenanteil", async ({ p
   await expect(investInput).toHaveValue("29000"); // monoenergetisch variant price, not an override
   await investInput.fill("20000");
   await page.waitForTimeout(200);
-  // M4 net 15.000 € × 45 % = 6.750 € instead of 24.000 € × 45 % = 10.800 € → Eigenanteil 115.200 − 9.000 + 4.050
-  await expect(page.locator("#ergebnis").getByText(/110[.,]250/).first()).toBeVisible();
+  // M4 20.000 € × 46 % = 9.200 € instead of 28.000 € (cap) × 46 % = 12.880 € → Eigenanteil 112.600 − 9.000 + 3.680
+  await expect(page.locator("aside").getByText(/107[.,]280/).first()).toBeVisible();
 });
 
 test("print report section is present in DOM with ÜBERBLICK heading", async ({ page }) => {
@@ -117,4 +117,14 @@ test("print report section is present in DOM with ÜBERBLICK heading", async ({ 
   const printReport = page.locator(".print-only").first();
   await expect(printReport).toBeAttached();
   await expect(printReport.getByText("ÜBERBLICK", { exact: true })).toBeAttached();
+});
+
+test("Förderannahmen: later heating application lowers the subsidy", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await loadApp(page);
+  await page.locator("button", { hasText: "Förderannahmen" }).click();
+  await page.locator('select[aria-label="Antrag Heizungstausch"]').selectOption({ label: "08/2028–01/2029" });
+  await page.waitForTimeout(150);
+  // M4: 25.000 € cap × 30 %, no Klimageschwindigkeitsbonus → 7.500 € instead of 12.880 €
+  expect(await sidebarSumme(page, "Förderung")).toMatch(/21[.,]820/);
 });

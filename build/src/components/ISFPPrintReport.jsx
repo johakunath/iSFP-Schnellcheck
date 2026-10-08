@@ -1,6 +1,6 @@
 import React from "react";
 import { fmt, fmtEur, textColorFor, waermeEEK, EnergyBar } from "../helpers.jsx";
-import { MASSNAHMENPAKETE, EFFIZIENZ_FARBEN, PAKET_FARBEN, BEG_BONUS, berechneEffizienzklasse, berechnePvErtrag, summiereMassnahmen, istEnergetisch } from "../data.js";
+import { MASSNAHMENPAKETE, EFFIZIENZ_FARBEN, PAKET_FARBEN, berechneEffizienzklasse, berechnePvErtrag, summiereMassnahmen, istEnergetisch } from "../data.js";
 
 // wirtschaftlichkeit = dieselbe berechneWirtschaftlichkeit-Rechnung wie Sidebar und 20-Jahr-Chart
 const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen, gebaeude, kumuliert, effectivePakete = MASSNAHMENPAKETE, wirtschaftlichkeit: w, eskalationIst = 0, eskalationZiel = 0 }) => {
@@ -295,8 +295,8 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
                   <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, border: "1px solid #E2DBD0" }}>
                     {[
                       { label: "Investitionskosten gesamt", val: fmtEur(summeInvest), color: "#1E1A15", bg: "#F8F5EF" },
-                      { label: "Davon Energiesparmaßnahmen (förderfähig)", val: fmtEur(summeFoerderfaehig), color: "#1E1A15", bg: "#FFF" },
-                      { label: `Förderung inkl. iSFP-Bonus ${Math.round(BEG_BONUS.isfp_bonus * 100)} % · ${foerderStellen}`, val: `− ${fmtEur(summeFoerder)}`, color: "#00843D", bg: "#F1F7F1" },
+                      { label: "Davon förderfähig", val: fmtEur(summeFoerderfaehig), color: "#1E1A15", bg: "#FFF" },
+                      { label: `Förderung · ${foerderStellen}`, val: `− ${fmtEur(summeFoerder)}`, color: "#00843D", bg: "#F1F7F1" },
                       { label: "Ihr Eigenanteil", val: fmtEur(eigenanteil), color: "#1E1A15", bg: "#F8F5EF", bold: true },
                     ].map(({ label, val, color, bg, bold }) => (
                       <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 11px", background: bg, borderBottom: "1px solid #E2DBD0" }}>

@@ -7,7 +7,7 @@
 // - EFH-fokussiert: Einfamilienhaus, Zweifamilienhaus, Doppelhaushälfte, Reihenhaus
 // ============================================================================
 
-import { KOSTENANSAETZE } from "./kosten.js";
+import { KOSTENANSAETZE, REFERENZ_GEBAEUDE } from "./kosten.js";
 
 // Übernimmt Investition und Sowieso-Anteil aus dem Kostenregister (kosten.js).
 const kostenAus = (id) => ({
@@ -359,8 +359,9 @@ export const WP_VARIANTEN = {
   },
   hybrid: {
     label: "Hybrid (WP + Gas)",
-    beschreibung: "WP deckt ~65 % der Heizlast. Gaskessel für Spitzenlast. Übergangslösung bei hoher Vorlauftemperatur und vorhandenem Gasanschluss. BEG 30 % auf den WP-Anteil (~60 % der Kosten). Gaskessel-Anteil nicht förderfähig.",
+    beschreibung: "WP deckt ~65 % der Heizlast. Gaskessel für Spitzenlast. Übergangslösung bei hoher Vorlauftemperatur und vorhandenem Gasanschluss. Gefördert wird nur der WP-Anteil (~60 % der Kosten), der Gaskessel-Anteil nicht.",
     investition: KOSTENANSAETZE.WP_hybrid.wert, ohnehin_anteil: KOSTENANSAETZE.WP_hybrid.ohnehin, foerderquote: 0.30,
+    foerderfaehigAnteil: 0.6,
     pe_mult: 0.55, ee_mult: 0.60, co2_mult: 0.55,
   },
 };
@@ -381,7 +382,7 @@ export const MASSNAHMENPAKETE = [
     zu_beachten: "Hydraulischer Abgleich erfordert Bestandspläne der Heizungsanlage. Terminkoordination mit Heizungsbauer mind. 4 Wochen im Voraus. BEG-Antrag muss vor Beauftragung gestellt werden.",
     komfortsteigerung: "Gleichmäßigere Wärmeverteilung im gesamten Gebäude. Kein Überheizen einzelner Räume. Geringere Geräuschentwicklung durch niedrigere Pumpenleistung.",
     massnahmen: [
-      { id: "M1", kurztitel: "Hydraul. Abgleich", rolle: "pflichtschritt", titel: "Hydraulischer Abgleich + Heizungsoptimierung",
+      { id: "M1", kurztitel: "Hydraul. Abgleich", rolle: "pflichtschritt", foerderprogramm: "em_optimierung", titel: "Hydraulischer Abgleich + Heizungsoptimierung",
         beschreibung: "Verfahren B nach VdZ, Pumpentausch, Voreinstellung Thermostatventile, Heizkurvenanpassung.",
         ...kostenAus("M1"), foerderquote: 0.15,
         co2_reduktion: 3.5, endenergie_delta: -12, primaerenergie_delta: -14,
@@ -396,12 +397,12 @@ export const MASSNAHMENPAKETE = [
     zu_beachten: "Dachdämmung erfordert statische Prüfung bei alter Dachkonstruktion. Baugenehmigung je nach Denkmalzone erforderlich. Schimmelrisiko durch erhöhte Luftdichtheit prüfen.",
     komfortsteigerung: "Deutlich wärmere Decken- und Wandoberflächen im OG — keine Kältestrahlung mehr. Geringerer Temperaturabfall über Nacht.",
     massnahmen: [
-      { id: "M2", kurztitel: "Dachdämmung", rolle: "energetisch", titel: "Dachdämmung Obergeschoss-Decke (22 cm Mineralwolle)",
+      { id: "M2", kurztitel: "Dachdämmung", rolle: "energetisch", foerderprogramm: "em_huelle", titel: "Dachdämmung Obergeschoss-Decke (22 cm Mineralwolle)",
         beschreibung: "Aufsparren- oder Zwischensparrendämmung, neue Dampfbremse, Luftdichtheitsschicht.",
         ...kostenAus("M2"), foerderquote: 0.15,
         co2_reduktion: 4.2, endenergie_delta: -22, primaerenergie_delta: -26,
         foerderung_rechtsgrundlage: "BEG EM", foerderung_stelle: "BAFA",
-        kostenherleitung: "~180 €/m² Dachfläche (~120 m² EFH-Dach) · 20 % davon sind sowieso fällige Dachneueindeckung (nicht förderfähig)",
+        kostenherleitung: "~180 €/m² Dachfläche (~120 m² EFH-Dach) · ~20 % davon entfallen auf ohnehin fällige Neueindeckung (Sowieso-Kosten, als Umfeldmaßnahme förderfähig)",
         impact: bs => _imp([[-26,-31,5.0],[-22,-26,4.2],[-14,-17,2.7],[-7,-8,1.3],[-2,-2,0.3],[-1,-1,0.1],[0,0,0]], (bs||{}).dach) },
     ],
   },
@@ -411,22 +412,22 @@ export const MASSNAHMENPAKETE = [
     zu_beachten: "Fenstertausch koordiniert mit Dachabdichtung planen, um Wärmebrücken zu minimieren. Baugenehmigung bei Denkmalschutz erforderlich.",
     komfortsteigerung: "Keine Kaltluftabfälle mehr. Spürbare Reduktion von Lärmdurchdringung (Schallschutz Rw ≥ 33 dB). Kein Zugluft-Effekt durch Fensterfugen.",
     massnahmen: [
-      { id: "M3", kurztitel: "Fenstertausch", rolle: "energetisch", titel: "Fenstertausch (3-fach Verglasung, Uw ≤ 0,95)",
+      { id: "M3", kurztitel: "Fenstertausch", rolle: "energetisch", foerderprogramm: "em_huelle", titel: "Fenstertausch (3-fach Verglasung, Uw ≤ 0,95)",
         beschreibung: "Komplettaustausch, RC2-Beschlag, Einbruchhemmung.",
         ...kostenAus("M3"), foerderquote: 0.15,
         co2_reduktion: 3.0, endenergie_delta: -15, primaerenergie_delta: -18,
         foerderung_rechtsgrundlage: "BEG EM", foerderung_stelle: "BAFA",
-        kostenherleitung: "~750 €/m² Fensterfläche (~25 m² EFH) · 35 % davon sind Fenster-Lebenszyklus-Erneuerung (nicht förderfähig)",
+        kostenherleitung: "~750 €/m² Fensterfläche (~25 m² EFH) · ~35 % davon sind ohnehin fällige Fenstererneuerung (Sowieso-Kosten, trotzdem förderfähig)",
         impact: bs => _imp([[-20,-24,4.0],[-17,-20,3.4],[-15,-18,3.0],[-8,-10,1.6],[-2,-2,0.4],[-1,-1,0.1],[0,0,0]], (bs||{}).fenster) },
     ],
   },
   {
     id: "P3", nummer: 3, titel: "Wärmeerzeugung & Verteilung", zeitraum: "2030 – 2034", farbe: "gelb",
     begruendung: "Wärmepumpe entfaltet ihr volles Potenzial nur mit niedriger Vorlauftemperatur. Heizkreis erst anpassen (falls nötig), dann WP einbauen, danach hydraulisch abgleichen.",
-    zu_beachten: "Reihenfolge wichtig: 1) Wärmeverteilung umbauen oder Heizkörper auf NT-Tauglichkeit prüfen. 2) WP-Außengerät installieren — Schallschutzgutachten empfohlen. 3) Hydraulischer Abgleich mit neuen Massenströmen. GEG §71 ab 2026 zwingend bei Heizungstausch.",
+    zu_beachten: "Reihenfolge wichtig: 1) Wärmeverteilung umbauen oder Heizkörper auf NT-Tauglichkeit prüfen. 2) WP-Außengerät installieren — Schallschutzgutachten empfohlen. 3) Hydraulischer Abgleich mit neuen Massenströmen. Klimageschwindigkeitsbonus sinkt halbjährlich bis Aug 2028 — Antragszeitpunkt bestimmt die Förderung.",
     komfortsteigerung: "Konstante Vorlauftemperaturen, leiser Betrieb außen. Bei Fußbodenheizung: gleichmäßige Strahlungswärme, im Sommer als Kühlung nutzbar.",
     massnahmen: [
-      { id: "M7", kurztitel: "Wärmeverteilung", rolle: "enabler", titel: "Erneuerung Wärmeverteilung (Niedertemperatur / Fußbodenheizung)",
+      { id: "M7", kurztitel: "Wärmeverteilung", rolle: "enabler", foerderprogramm: "em_optimierung", titel: "Erneuerung Wärmeverteilung (Niedertemperatur / Fußbodenheizung)",
         beschreibung: "Umbau auf Fußbodenheizung (Trocken- oder Nassestrich) oder Heizkreisoptimierung für NT-Betrieb ≤ 40 °C inkl. hydraulischem Abgleich. Voraussetzung für Monovalent-WP-Betrieb (COP ~4–5 statt ~2).",
         ...kostenAus("M7"), foerderquote: 0.15,
         co2_reduktion: 1.0,
@@ -436,12 +437,12 @@ export const MASSNAHMENPAKETE = [
           const vNote = ((bs||{}).verteilung) || 2;
           return _imp([[-5,-4,1.0],[-4,-3,0.8],[-3,-3,0.6],[-2,-2,0.4],[-1,-1,0.2],[0,0,0],[0,0,0]], vNote);
         } },
-      { id: "M4", kurztitel: "Wärmepumpe", rolle: "systempfad", heizungstausch: true, titel: "Luft-Wasser-Wärmepumpe (12 kW, monovalent)",
+      { id: "M4", kurztitel: "Wärmepumpe", rolle: "systempfad", heizungstausch: true, foerderprogramm: "heizung", titel: "Luft-Wasser-Wärmepumpe (12 kW, monovalent)",
         beschreibung: "Monoblock-WP außen, neuer Pufferspeicher 300 L, Heizkörpertausch wo nötig.",
         ...kostenAus("M4"), foerderquote: 0.30,
         co2_reduktion: 22, endenergie_delta: -70, primaerenergie_delta: -55,
         foerderung_rechtsgrundlage: "BEG EM / KfW 458", foerderung_stelle: "KfW",
-        kostenherleitung: "~2.700 €/kW Leistung EFH-typisch · 16 % davon sind Ersatz der alten Heizung (nicht förderfähig). Grundförderung 30 % + Klimageschwindigkeit 20 % möglich → max. 50 %",
+        kostenherleitung: "~2.700 €/kW Leistung EFH-typisch · ~16 % davon entfallen ohnehin auf den Ersatz der alten Heizung (Sowieso-Kosten, trotzdem förderfähig). KfW 458: 30 % Grundförderung + Klimageschwindigkeits- und Einkommensbonus, förderfähige Kosten gedeckelt.",
         impact: bs => {
           const variante = WP_VARIANTEN[(bs||{}).wpVariante] || WP_VARIANTEN.monovalent;
           const base = _imp([[-115,-60,24],[-105,-55,22],[-88,-43,17],[-70,-32,12],[-42,-16,6],[-15,-6,2],[0,0,0]], (bs||{}).heizung);
@@ -464,12 +465,12 @@ export const MASSNAHMENPAKETE = [
     zu_beachten: "Bei denkmalgeschützten Fassaden Innendämmung als Alternative prüfen. Fensterlaibungen und Sockel mit dämmen, sonst Wärmebrücken. Gerüststandzeit 6–10 Wochen einplanen.",
     komfortsteigerung: "Deutlich wärmere Wandoberflächen — keine Kondensat- und Schimmelgefahr mehr. Schutz vor Sommerhitze (Phasenverschiebung). Wertsteigerung durch modernes Erscheinungsbild.",
     massnahmen: [
-      { id: "M5", kurztitel: "Fassadendämmung", rolle: "energetisch", titel: "Fassadendämmung (WDVS 18 cm Mineralwolle)",
+      { id: "M5", kurztitel: "Fassadendämmung", rolle: "energetisch", foerderprogramm: "em_huelle", titel: "Fassadendämmung (WDVS 18 cm Mineralwolle)",
         beschreibung: "Wärmedämmverbundsystem U<0,20, neue Fassadenfarbe, Fensterlaibungen.",
         ...kostenAus("M5"), foerderquote: 0.15,
         co2_reduktion: 6.5, endenergie_delta: -28, primaerenergie_delta: -33,
         foerderung_rechtsgrundlage: "BEG EM", foerderung_stelle: "BAFA",
-        kostenherleitung: "~190 €/m² Fassade (~200 m² EFH) · 32 % davon sind sowieso fällige Putzerneuerung + Anstrich (nicht förderfähig)",
+        kostenherleitung: "~190 €/m² Fassade (~200 m² EFH) · ~32 % davon sind ohnehin fällige Putzerneuerung + Anstrich (Sowieso-Kosten, als Umfeldmaßnahme förderfähig)",
         impact: bs => _imp([[-34,-40,7.8],[-28,-33,6.5],[-18,-21,4.1],[-9,-11,2.1],[-2,-3,0.5],[-1,-1,0.1],[0,0,0]], (bs||{}).waende) },
     ],
   },
@@ -484,39 +485,130 @@ export const MASSNAHMENPAKETE = [
         ...kostenAus("M6"), foerderquote: 0,
         co2_reduktion: 4.0, endenergie_delta: 0, primaerenergie_delta: -12,
         foerderung_rechtsgrundlage: "KfW 270 (Kredit) + EEG-Einspeisung", foerderung_stelle: "KfW",
-        kostenherleitung: "~1.500 €/kWp inkl. Speicher und Montage · keine nicht-förderfähigen Anteile (Neuinvestition)",
+        kostenherleitung: "18.000 € pauschal inkl. Speicher und Montage (Herkunft undokumentiert) · kein BEG-Zuschuss",
         impact: () => ({ endenergie_delta: 0, primaerenergie_delta: -12, co2_reduktion: 4.0 }) },
     ],
   },
 ];
 
 // Nur iSFP-Bonus, kein Konjunktur-Booster mehr
-// ─── Förderlogik (Demo) ───────────────────────────────────────────────────
-// Eine Stelle für alle Förderberechnungen (Sidebar, Paket-Blöcke, Bericht).
-// Bewusst vereinfacht und NICHT deckungsgleich mit der BEG-Richtlinie:
-//  - iSFP-Bonus wird auf alle geförderten Maßnahmen angewandt (BEG: nicht auf den Wärmeerzeuger).
-//  - Klimageschwindigkeitsbonus als pauschal +10 % (BEG 2024: 20 % bis Ende 2028, degressiv,
-//    nur Selbstnutzer, Gaskessel erst ab 20 Jahren).
-//  - Förderfähig = Investition − Sowieso-Anteil (BEG fördert die förderfähigen Gesamtkosten).
-//  - Keine Höchstgrenzen förderfähiger Kosten, kein Einkommens-/Effizienzbonus.
-// Änderungen hier verschieben die Golden Values in data.test.js.
+// ─── Förderlogik: BEG ab 21.07.2026 ───────────────────────────────────────
+// Quellen (geprüft über Auszüge, Volltexte waren aus der Umgebung nicht abrufbar):
+//  - BEG-Richtlinie Einzelmaßnahmen, gültig ab 21.07.2026 (BMWE, energiewechsel.de; BAnz AT 27.08.2026 B1)
+//  - KfW-Merkblatt 458 Heizungsförderung für Privatpersonen, Stand 09/2026
+//  - BAFA/KfW-Infoblatt förderfähige Maßnahmen (Umfeldmaßnahmen wie Gerüst, Neueindeckung,
+//    Putz, Rückbau der Altanlage sind förderfähig → kein Abzug von Sowieso-Kosten)
+// Vereinfachungen: jede Maßnahme = ein Antrag (Höchstgrenzen und iSFP-Schwelle je Maßnahme statt
+// je Wohneinheit und Kalenderjahr); nur 1 Wohneinheit; WPB-Bonus (ab 2027) nicht modelliert;
+// M7 wird als Heizungsoptimierung (BAFA) behandelt.
+export const FOERDERSTAND = "BEG ab 21.07.2026 · KfW 458 Stand 09/2026";
+
 export const FOERDERREGELN = {
-  isfpBonus: 0.05,
-  klimaBonus: 0.10,
-  maxQuote: 0.50,
+  em: {
+    isfpBonus: 0.05,          // nur auf förderfähige Kosten oberhalb der Schwelle
+    isfpSchwelle: 30000,      // = Höchstgrenze ohne iSFP (1. WE)
+    hoechstOhneIsfp: 30000,
+    hoechstMitIsfp: 60000,
+    mindestInvest: { em_huelle: 2000, em_optimierung: 300 },
+  },
+  heizung: {
+    maxQuote: 0.70,
+    maxQuoteNiedrigesEinkommen: 0.80, // Selbstnutzer, Einkommensstufe bis 30.000 €
+    einkommensbonus: { bis30: 0.40, bis40: 0.30, bis50: 0.10, ueber50: 0 },
+    klimabonusStart: 0.16,     // bis 31.01.2027, danach −4 Punkte je Halbjahr, ab 01.08.2028 0
+    klimabonusSchritt: 0.04,
+    hoechstStart: 28000,       // förderfähige Kosten 1. WE bis 31.01.2027, danach −750 € je Halbjahr
+    hoechstSchritt: 750,
+    klimabonusMindestalter: 20, // Gas-/Biomasseheizung; Öl, Kohle, Gasetage, Nachtspeicher altersunabhängig
+  },
 };
-export const BEG_BONUS = { isfp_bonus: FOERDERREGELN.isfpBonus }; // Altname, für Texte
+export const BEG_BONUS = { isfp_bonus: FOERDERREGELN.em.isfpBonus }; // Altname für Texte
 
-const KLIMABONUS_HEIZUNGEN = /Heizöl|Erdgas/i;
+// Antragszeiträume (Halbjahre) für die Heizungsförderung: index 0 = 21.07.2026–31.01.2027.
+export const ANTRAGSZEITRAEUME = Array.from({ length: 10 }, (_, i) => {
+  const startJahr = 2026 + Math.floor((i + 1) / 2);
+  const istFeb = i % 2 === 1;
+  const label = i === 0 ? "bis 01/2027"
+    : istFeb ? `02–07/${startJahr}` : `08/${startJahr}–01/${startJahr + 1}`;
+  return { index: i, label, jahr: i === 0 ? 2026 : startJahr };
+});
 
+export const EINKOMMENSSTUFEN = [
+  { value: "ueber50", label: "> 50.000 €" },
+  { value: "bis50",   label: "≤ 50.000 €" },
+  { value: "bis40",   label: "≤ 40.000 €" },
+  { value: "bis30",   label: "≤ 30.000 €" },
+];
+
+export const DEFAULT_FOERDERKONTEXT = {
+  selbstnutzer: true,
+  einkommen: "ueber50",   // zu versteuerndes Haushaltseinkommen (Kinder: −10.000 € je Haushalt, vom Nutzer berücksichtigt)
+  isfp: true,             // BAFA-geförderter iSFP liegt vor
+  antragszeitraum: 0,     // Index in ANTRAGSZEITRAEUME
+};
+
+export function heizungsFoerderParameter(antragszeitraum = 0) {
+  const r = FOERDERREGELN.heizung;
+  const i = Math.max(0, antragszeitraum | 0);
+  return {
+    klimabonus: Math.max(0, +(r.klimabonusStart - r.klimabonusSchritt * i).toFixed(2)),
+    hoechst: r.hoechstStart - r.hoechstSchritt * i,
+  };
+}
+
+// Klimageschwindigkeitsbonus: Selbstnutzer ersetzt Öl/Kohle/Gasetage/Nachtspeicher (jedes Alter)
+// oder Gas/Biomasse ab 20 Jahren Betriebsdauer zum Antragsjahr.
+export function klimabonusBerechtigt(gebaeude, kontext) {
+  if (!kontext.selbstnutzer) return false;
+  const typ = gebaeude.heizung_typ || "";
+  if (/Heizöl|Elektroheizung/i.test(typ)) return true; // Elektroheizung hier als Nachtspeicher gewertet
+  if (/Erdgas|Biomasse|Pellets/i.test(typ)) {
+    const jahr = ANTRAGSZEITRAEUME[kontext.antragszeitraum]?.jahr ?? 2026;
+    const bj = Number(gebaeude.heizung_bj) || jahr;
+    return jahr - bj >= FOERDERREGELN.heizung.klimabonusMindestalter;
+  }
+  return false;
+}
+
+// Eine Funktion für alle Förderbeträge (Sidebar, Paket-Blöcke, Bericht).
+// Rückgabe: förderfähige Kosten, Betrag, effektive Quote (Betrag ÷ Investition), Bestandteile für Tooltips.
 export function berechneFoerderung(m, gebaeude = {}) {
-  const basisQuote = m.foerderquote ?? 0;
-  const foerderfaehig = Math.max(0, (m.investition ?? 0) - (m.ohnehin_anteil ?? 0));
-  if (!(basisQuote > 0)) return { foerderfaehig, quote: 0, klimaBonus: 0, betrag: 0 };
-  const klimaBonus = m.heizungstausch && KLIMABONUS_HEIZUNGEN.test(gebaeude.heizung_typ || "")
-    ? FOERDERREGELN.klimaBonus : 0;
-  const quote = Math.min(basisQuote + FOERDERREGELN.isfpBonus + klimaBonus, FOERDERREGELN.maxQuote);
-  return { foerderfaehig, quote, klimaBonus, betrag: foerderfaehig * quote };
+  const kontext = { ...DEFAULT_FOERDERKONTEXT, ...(gebaeude.foerderung || {}) };
+  const invest = m.investition ?? 0;
+  const grund = m.foerderquote ?? 0;
+  const leer = { foerderfaehig: 0, betrag: 0, quote: 0, klimaBonus: 0, bestandteile: [], programm: m.foerderprogramm || null };
+  if (!(grund > 0) || invest <= 0) return leer;
+
+  if (m.foerderprogramm === "heizung") {
+    const r = FOERDERREGELN.heizung;
+    const { klimabonus, hoechst } = heizungsFoerderParameter(kontext.antragszeitraum);
+    const foerderfaehig = Math.min(invest * (m.foerderfaehigAnteil ?? 1), hoechst);
+    const kgb = klimabonusBerechtigt(gebaeude, kontext) ? klimabonus : 0;
+    const ekb = kontext.selbstnutzer ? (r.einkommensbonus[kontext.einkommen] ?? 0) : 0;
+    const max = kontext.selbstnutzer && kontext.einkommen === "bis30" ? r.maxQuoteNiedrigesEinkommen : r.maxQuote;
+    const quoteFF = Math.min(grund + kgb + ekb, max);
+    const bestandteile = [
+      { label: `Grundförderung ${Math.round(grund * 100)} %`, betrag: foerderfaehig * grund },
+      kgb > 0 && { label: `Klimageschwindigkeitsbonus ${Math.round(kgb * 100)} %`, betrag: foerderfaehig * kgb },
+      ekb > 0 && { label: `Einkommensbonus ${Math.round(ekb * 100)} %`, betrag: foerderfaehig * ekb },
+      grund + kgb + ekb > max && { label: `Deckelung auf ${Math.round(max * 100)} %`, betrag: foerderfaehig * (max - grund - kgb - ekb) },
+    ].filter(Boolean);
+    const betrag = foerderfaehig * quoteFF;
+    return { foerderfaehig, betrag, quote: betrag / invest, quoteFoerderfaehig: quoteFF, klimaBonus: kgb, bestandteile, programm: "heizung" };
+  }
+
+  // BEG EM (BAFA): Gebäudehülle, Heizungsoptimierung
+  const r = FOERDERREGELN.em;
+  const mindest = r.mindestInvest[m.foerderprogramm] ?? r.mindestInvest.em_huelle;
+  if (invest < mindest) return leer;
+  const foerderfaehig = Math.min(invest, kontext.isfp ? r.hoechstMitIsfp : r.hoechstOhneIsfp);
+  const isfpBasis = kontext.isfp ? Math.max(0, foerderfaehig - r.isfpSchwelle) : 0;
+  const bestandteile = [
+    { label: `Grundförderung ${Math.round(grund * 100)} %`, betrag: foerderfaehig * grund },
+    isfpBasis > 0 && { label: `iSFP-Bonus ${Math.round(r.isfpBonus * 100)} % auf ${Math.round(isfpBasis).toLocaleString("de-DE")} € über der Schwelle`, betrag: isfpBasis * r.isfpBonus },
+  ].filter(Boolean);
+  const betrag = foerderfaehig * grund + isfpBasis * r.isfpBonus;
+  return { foerderfaehig, betrag, quote: betrag / invest, quoteFoerderfaehig: betrag / foerderfaehig, klimaBonus: 0, bestandteile, programm: m.foerderprogramm || "em_huelle" };
 }
 
 // Summen für eine Liste (aktiver) Maßnahmen — z. B. ein Paket.
@@ -530,6 +622,56 @@ export function summiereMassnahmen(massnahmen, gebaeude = {}) {
     acc.eigenanteil = acc.invest - acc.foerderung;
     return acc;
   }, { invest: 0, instand: 0, foerderfaehig: 0, foerderung: 0, eigenanteil: 0 });
+}
+
+// ─── Mengenmodell ─────────────────────────────────────────────────────────
+// Leitet Bauteilmengen aus Wohnfläche, Nutzfläche, Geschossen, Gebäudetyp und Dachform ab.
+// Kalibriert auf REFERENZ_GEBAEUDE: dort ergeben sich exakt die Mengen aus kosten.js.
+// Geometrische Näherung (quadratischer Grundriss), keine Planung:
+//  - Grundfläche = Nutzfläche AN ÷ Vollgeschosse
+//  - Dach: geneigt ∝ Grundfläche; Flachdach = Grundfläche
+//  - Fassade ∝ Umfang (√Grundfläche) × Geschosse × Anteil freier Außenwand
+//    (EFH/ZFH 100 %, DHH 75 % = eine Seite angebaut, Reihenhaus 50 % = zwei Seiten angebaut)
+//  - Fenster und beheizte Fläche ∝ Wohnfläche
+export const AUSSENWAND_ANTEIL = { Einfamilienhaus: 1, Zweifamilienhaus: 1, "Doppelhaushälfte": 0.75, Reihenhaus: 0.5 };
+const AN_PRO_WOHNFLAECHE = REFERENZ_GEBAEUDE.gebaeudenutzflaeche / REFERENZ_GEBAEUDE.wohnflaeche;
+
+const grunddaten = (g) => {
+  const wohnflaeche = Number(g.wohnflaeche) > 0 ? Number(g.wohnflaeche) : REFERENZ_GEBAEUDE.wohnflaeche;
+  const an = Number(g.gebaeudenutzflaeche) > 0 ? Number(g.gebaeudenutzflaeche) : wohnflaeche * AN_PRO_WOHNFLAECHE;
+  const geschosse = Math.max(1, Number(g.vollgeschosse) || REFERENZ_GEBAEUDE.vollgeschosse);
+  return { wohnflaeche, grundflaeche: an / geschosse, geschosse, flachdach: /Flachdach/i.test(g.dach || ""), anteil: AUSSENWAND_ANTEIL[g.typ] ?? 1 };
+};
+
+export function berechneMengen(gebaeude = {}) {
+  const ref = grunddaten(REFERENZ_GEBAEUDE);
+  const g = grunddaten(gebaeude);
+  const refMenge = (id) => KOSTENANSAETZE[id].menge.wert;
+  const dachProGrundflaeche = refMenge("M2") / ref.grundflaeche; // geneigtes Referenzdach inkl. Überstand
+  return {
+    grundflaeche: g.grundflaeche,
+    dachflaeche: g.grundflaeche * (g.flachdach ? 1 : dachProGrundflaeche),
+    fassadenflaeche: refMenge("M5") * Math.sqrt(g.grundflaeche / ref.grundflaeche) * (g.geschosse / ref.geschosse) * (g.anteil / ref.anteil),
+    fensterflaeche: refMenge("M3") * g.wohnflaeche / ref.wohnflaeche,
+    beheizteFlaeche: refMenge("M7") * g.wohnflaeche / ref.wohnflaeche,
+  };
+}
+
+const rund100 = (x) => Math.round(x / 100) * 100;
+
+// Skaliert Investition und Sowieso-Anteil flächenbezogener Ansätze auf die Mengen des Gebäudes.
+export function wendeMengenAn(m, mengen) {
+  const ansatz = KOSTENANSAETZE[m.kostenansatz];
+  if (!ansatz?.mengenbezug || !mengen) return m;
+  const menge = mengen[ansatz.mengenbezug];
+  const faktor = menge / ansatz.menge.wert;
+  if (!Number.isFinite(faktor) || faktor <= 0) return m;
+  return {
+    ...m,
+    investition: rund100(m.investition * faktor),
+    ohnehin_anteil: rund100((m.ohnehin_anteil ?? 0) * faktor),
+    menge: { wert: Math.round(menge), einheit: ansatz.menge.einheit, faktor },
+  };
 }
 
 // ─── Maßnahmen-Kategorien ─────────────────────────────────────────────────
@@ -738,13 +880,14 @@ export function massnahmeIstSchonVorhanden(massnahmeId, gebaeude) {
 export function getDefaultAktiveMassnahmen(gebaeude, bauteile_state, pakete = MASSNAHMENPAKETE) {
   const bs  = bauteile_state || {};
   const vt  = vorlauftemperaturFuer(gebaeude.waermeverteilung);
-  const fossil = /Heizöl|Erdgas|Fernwärme \(Gas/i.test(gebaeude.heizung_typ || "");
+  // WP vorschlagen bei fossiler Heizung und bei Elektro-Direktheizung (Nachtspeicher)
+  const wpSinnvoll = /Heizöl|Erdgas|Fernwärme \(Gas|Elektroheizung/i.test(gebaeude.heizung_typ || "");
   return pakete.flatMap(pkg =>
     pkg.massnahmen.filter(m => {
       if (!istEnergetisch(m)) return false;
       if (massnahmeIstSchonVorhanden(m.id, gebaeude)) return false;
       if (m.id === "M7") return vt > 50;
-      if (m.id === "M4") return fossil;
+      if (m.id === "M4") return wpSinnvoll;
       const imp = m.impact ? m.impact(bs) : { primaerenergie_delta: m.primaerenergie_delta || 0 };
       return Math.abs(imp.primaerenergie_delta || 0) >= 3;
     }).map(m => m.id)
@@ -816,19 +959,21 @@ export function wendeWpVarianteAn(m, varianteKey) {
     investition: v.investition,
     ohnehin_anteil: v.ohnehin_anteil,
     foerderquote: v.foerderquote,
+    foerderfaehigAnteil: v.foerderfaehigAnteil ?? 1,
     kostenansatz: `WP_${varianteKey}`,
   };
 }
 
-// Basiswerte vor Nutzer-Overrides (Variante bereits angewandt) — Referenz für den Editor.
-export function erstelleBasisPakete(varianteKey, pakete = MASSNAHMENPAKETE) {
-  return pakete.map(p => ({ ...p, massnahmen: p.massnahmen.map(m => wendeWpVarianteAn(m, varianteKey)) }));
+// Basiswerte vor Nutzer-Overrides (Variante + Mengenmodell angewandt) — Referenz für den Editor.
+export function erstelleBasisPakete(varianteKey, gebaeude = null, pakete = MASSNAHMENPAKETE) {
+  const mengen = gebaeude ? berechneMengen(gebaeude) : null;
+  return pakete.map(p => ({ ...p, massnahmen: p.massnahmen.map(m => wendeMengenAn(wendeWpVarianteAn(m, varianteKey), mengen)) }));
 }
 
 // Pakete mit Variante + Nutzer-Overrides, Maßnahmen und Pakete nach €/kWh-Score sortiert.
 // P1 (Sofortmaßnahmen) bleibt immer vorne. Ergebnis ist die Basis aller Kosten-Anzeigen.
 export function erstelleEffektivePakete({ overrides = {}, varianteKey, bauteile_state, gebaeude, pakete = MASSNAHMENPAKETE }) {
-  const merged = erstelleBasisPakete(varianteKey, pakete).map(p => ({
+  const merged = erstelleBasisPakete(varianteKey, gebaeude, pakete).map(p => ({
     ...p,
     massnahmen: p.massnahmen.map(m => ({ ...m, ...(overrides[m.id] || {}) })),
   }));
@@ -874,9 +1019,10 @@ export function erstelleStartzustand(presetId) {
 // Vollständige Szenario-Rechnung für ein Preset — dieselbe Kette wie in App.jsx
 // (Startzustand → effektiver Bauteilzustand → Pakete mit Variante/Overrides → M1-Umzug).
 // Für Tests, Beispielrechnung und spätere Szenario-Vergleiche.
-export function berechneSzenario({ presetId, aktiveMassnahmen, wpWahl = "auto", overrides = {} }) {
-  const start = erstelleStartzustand(presetId);
-  if (!start) return null;
+export function berechneSzenario({ presetId, aktiveMassnahmen, wpWahl = "auto", overrides = {}, foerderung = DEFAULT_FOERDERKONTEXT }) {
+  const raw = erstelleStartzustand(presetId);
+  if (!raw) return null;
+  const start = { ...raw, gebaeude: { ...raw.gebaeude, foerderung } };
   const aktive = aktiveMassnahmen ?? start.aktiveMassnahmen;
   const { state, wp } = erstelleEffektivenBauteilState({
     bauteile_state: bauteileAlsState(start.bauteile), gebaeude: start.gebaeude, aktiveMassnahmen: aktive, wpWahl,

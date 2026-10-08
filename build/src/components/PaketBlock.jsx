@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  PAKET_FARBEN, WP_VARIANTEN, berechneFoerderung, summiereMassnahmen, berechnePvErtrag, istEnergetisch,
+  WP_VARIANTEN, berechneFoerderung, summiereMassnahmen, berechnePvErtrag, istEnergetisch,
 } from "../data.js";
 import { KOSTENANSAETZE, kostenStatusText } from "../kosten.js";
 import { fmtEur } from "../helpers.jsx";
@@ -117,10 +117,20 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                   <div>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Kosten-Herleitung</div>
                     <div style={{ fontSize: 11.5, marginBottom: 8 }}>{massnahme.kostenherleitung}</div>
+                    {massnahme.menge && (
+                      <div style={{ fontSize: 11.5, marginBottom: 8 }}>
+                        Ihr Gebäude: ~{massnahme.menge.wert} {massnahme.menge.einheit} (Mengenmodell) → {fmtEur(massnahme.investition)}
+                      </div>
+                    )}
                     <div style={{ fontWeight: 600, marginBottom: 4, marginTop: 8 }}>Förderung</div>
                     <div style={{ fontSize: 11.5 }}>
                       {massnahme.foerderung_rechtsgrundlage} · durchgeführt durch {massnahme.foerderung_stelle}
-                      {foerderung.quote > 0 && <><br/>Grundquote {Math.round(massnahme.foerderquote * 100)} % · im Modell {Math.round(foerderung.quote * 100)} % (inkl. iSFP-Bonus{foerderung.klimaBonus > 0 ? " + Klimabonus" : ""}) auf förderfähige Kosten {fmtEur(foerderung.foerderfaehig)}</>}
+                      {foerderung.betrag > 0 && (
+                        <>
+                          <br/>Förderfähig: {fmtEur(foerderung.foerderfaehig)}
+                          {foerderung.bestandteile.map(b => <React.Fragment key={b.label}><br/>{b.label}: {b.betrag < 0 ? "−" : ""}{fmtEur(Math.abs(b.betrag))}</React.Fragment>)}
+                        </>
+                      )}
                     </div>
                     {kostenansatz && (
                       <div style={{ fontSize: 10.5, marginTop: 8, opacity: 0.8 }}>Kostenbasis: {kostenStatusText(kostenansatz)}</div>
@@ -166,7 +176,7 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                       ? (
                           <>
                             <span>·</span>
-                            <span title={`${Math.round(foerderung.quote * 100)} % auf förderfähige Kosten ${fmtEur(foerderung.foerderfaehig)} (Investition abzüglich Sowieso-Anteil)`}>
+                            <span title={`${Math.round(foerderung.quote * 100)} % der Investition (förderfähig: ${fmtEur(foerderung.foerderfaehig)})`}>
                               {Math.round(foerderung.quote * 100)} % BEG → −{fmtEur(foerderung.betrag)}
                             </span>
                           </>
