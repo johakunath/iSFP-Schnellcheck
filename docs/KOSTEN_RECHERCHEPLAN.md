@@ -63,6 +63,24 @@ Vor Übernahme jeweils prüfen: Verfügbarkeit, Aktualität, Lizenz (z. B. Zitie
 
 Nicht als Beleg verwenden: Kostenrechner von Vergleichs- und Vermittlungsportalen ohne Methodik.
 
+## 3a. Bereits ausgewertet (10/2026)
+
+**BEG-Evaluation „Förderwirkungen BEG EM 2024“** (Prognos/ifeu/FIW/ITG, Endbericht 2026, energiewechsel.de),
+Tabellen 3-6 und 3-9, Wohngebäude, bundesweit. Gesamtinvestition je Förderfall (eigene Division,
+alle Gebäudegrößen gemischt, ~1,9 Wohneinheiten je Förderfall, laut Bericht systematisch unterschätzt):
+
+| Maßnahme | Förderfälle | Gesamtinvestition | je Förderfall |
+|---|---|---|---|
+| Wärmepumpe | 135.289 | 6.488 Mio. € | ~48.000 € |
+| Fenster/Außentüren | 39.549 | 913 Mio. € | ~23.100 € |
+| Dachflächen, Decken, Wände | 7.251 | 545 Mio. € | ~75.200 € |
+| Außenwand | 4.557 | 324 Mio. € | ~71.100 € |
+
+Einordnung: **DE, dokumentiert, aber nicht EFH-spezifisch** → nur Plausibilitätsprüfung, kein Ersatz für
+`KOSTENANSAETZE`. Keine Auswertung nach Bundesland oder Gebäudetyp im Bericht gefunden.
+
+**Badsanierung**: nur Ratgeber-/Anbieterseiten verfügbar (siehe `QUELLEN_BAD` in kosten.js), Evidenz „Annahme“.
+
 ## 4. Vorgehen
 
 | Schritt | Ergebnis | Aufwand |
