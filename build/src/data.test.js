@@ -334,8 +334,8 @@ describe("berechneFoerderung (BEG ab 21.07.2026)", () => {
     expect(berechneFoerderung(huelle({ investition: 80000 }), geb({ isfp: false })).betrag).toBeCloseTo(30000 * 0.15);
   });
 
-  it("envelope below minimum investment (2.000 €) gets nothing; optimisation minimum is 300 €", () => {
-    expect(berechneFoerderung(huelle({ investition: 1500 }), geb()).betrag).toBe(0);
+  it("below the minimum investment of 300 € (Richtlinie Nr. 4) there is no subsidy", () => {
+    expect(berechneFoerderung(huelle({ investition: 250 }), geb()).betrag).toBe(0);
     expect(berechneFoerderung(huelle({ investition: 1500, foerderprogramm: "em_optimierung" }), geb()).betrag).toBeCloseTo(225);
   });
 
@@ -346,12 +346,39 @@ describe("berechneFoerderung (BEG ab 21.07.2026)", () => {
     expect(f.bestandteile.map(b => b.label).join()).not.toMatch(/iSFP/);
   });
 
-  it("Klimageschwindigkeitsbonus and cost cap fall every half year; bonus is 0 from Aug 2028", () => {
-    expect(heizungsFoerderParameter(0)).toEqual({ klimabonus: 0.16, hoechst: 28000 });
-    expect(heizungsFoerderParameter(1)).toEqual({ klimabonus: 0.12, hoechst: 27250 });
-    expect(heizungsFoerderParameter(4).klimabonus).toBe(0);
-    expect(heizungsFoerderParameter(8).hoechst).toBe(22000);
-    expect(berechneFoerderung(wp(), geb({ antragszeitraum: 4 })).betrag).toBeCloseTo(25000 * 0.30);
+  it("period table follows Richtlinie Nr. 8.3.1 a / 8.4.4 (bonus −4 points, cap −750 € per half year)", () => {
+    expect(heizungsFoerderParameter(0)).toMatchObject({ klimabonus: 0.16, hoechst: 28000, ab2027: false });
+    expect(heizungsFoerderParameter(1)).toMatchObject({ klimabonus: 0.16, hoechst: 28000, ab2027: true });
+    expect(heizungsFoerderParameter(2)).toMatchObject({ klimabonus: 0.12, hoechst: 27250 });
+    expect(heizungsFoerderParameter(5)).toMatchObject({ klimabonus: 0, hoechst: 25000 });
+    expect(heizungsFoerderParameter(9).hoechst).toBe(22000);
+  });
+
+  it("from Q1 2027 the heat-pump base rate is 15 %, plus 15 % value-creation bonus for EU-made units", () => {
+    expect(berechneFoerderung(wp(), geb({ antragszeitraum: 1 })).quoteFoerderfaehig).toBeCloseTo(0.46);
+    expect(berechneFoerderung(wp(), geb({ antragszeitraum: 1, wpEuUrsprung: false })).quoteFoerderfaehig).toBeCloseTo(0.31);
+    expect(berechneFoerderung(wp(), geb({ antragszeitraum: 5 })).betrag).toBeCloseTo(25000 * 0.30);
+  });
+
+  it("from Q1 2027 no heating subsidy if a heat pump/biomass system from 2008 or later exists", () => {
+    const g = geb({ antragszeitraum: 1 }, { heizung_typ: "Biomasse (Pellets)", heizung_bj: 2012 });
+    expect(berechneFoerderung(wp(), g).betrag).toBe(0);
+    expect(berechneFoerderung(wp(), { ...g, foerderung: { antragszeitraum: 0 } }).betrag).toBeGreaterThan(0);
+  });
+
+  it("WPB bonus +5 % on insulation from Q1 2027 if IST Endenergie > 250 (class H) and iSFP", () => {
+    const daemm = huelle({ daemmung: true });
+    expect(berechneFoerderung(daemm, geb({ antragszeitraum: 1, istEndenergie: 280 })).betrag).toBeCloseTo(20000 * 0.20);
+    expect(berechneFoerderung(daemm, geb({ antragszeitraum: 0, istEndenergie: 280 })).betrag).toBeCloseTo(20000 * 0.15);
+    expect(berechneFoerderung(daemm, geb({ antragszeitraum: 1, istEndenergie: 200 })).betrag).toBeCloseTo(20000 * 0.15);
+    expect(berechneFoerderung(huelle(), geb({ antragszeitraum: 1, istEndenergie: 280 })).betrag).toBeCloseTo(20000 * 0.15); // windows: no WPB
+  });
+
+  it("two dwellings: higher caps, bonuses only for the self-used unit", () => {
+    const zfh = (f) => ({ ...geb(f), wohneinheiten: 2 });
+    expect(berechneFoerderung(wp({ investition: 50000 }), zfh()).foerderfaehig).toBe(43000);
+    expect(berechneFoerderung(wp({ investition: 50000 }), zfh()).quoteFoerderfaehig).toBeCloseTo(0.30 + 0.08);
+    expect(berechneFoerderung(huelle({ investition: 50000 }), zfh({ isfp: false })).foerderfaehig).toBe(45000);
   });
 
   it("Klimageschwindigkeitsbonus needs a self-user and, for gas, a boiler at least 20 years old", () => {

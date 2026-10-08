@@ -125,6 +125,7 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                     <div style={{ fontWeight: 600, marginBottom: 4, marginTop: 8 }}>Förderung</div>
                     <div style={{ fontSize: 11.5 }}>
                       {massnahme.foerderung_rechtsgrundlage} · durchgeführt durch {massnahme.foerderung_stelle}
+                      {foerderung.hinweis && <><br/>{foerderung.hinweis}</>}
                       {foerderung.betrag > 0 && (
                         <>
                           <br/>Förderfähig: {fmtEur(foerderung.foerderfaehig)}

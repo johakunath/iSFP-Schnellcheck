@@ -97,10 +97,14 @@ Single function for every Förder number on screen and in print. Rules (KfW-Merk
 
 - Routing per measure via `foerderprogramm`: `heizung` (M4, KfW 458), `em_huelle` (M2/M3/M5), `em_optimierung` (M1/M7), none (M6).
 - Förderfähig = full measure cost (Umfeldmaßnahmen incl.), **no Sowieso deduction**; `ohnehin_anteil` is informational only.
-- EM: 15 % base; cap 30.000 € (60.000 € with BAFA-funded iSFP); iSFP bonus +5 % only on eligible cost above 30.000 €; minimum invest 2.000 € (optimisation 300 €).
+- EM: 15 % base; cap 30.000 € (60.000 € with BAFA-funded iSFP) for the first dwelling; iSFP bonus +5 % only on eligible cost above the cap without iSFP.
 - Heizung: 30 % base + Klimageschwindigkeitsbonus 16 % (self-user; oil/coal/Gasetage/Nachtspeicher any age, gas/biomass ≥ 20 years; −4 points per half year, 0 from 08/2028) + income bonus 40/30/10 %; cap 70 % (80 % for income ≤ 30.000 €); eligible cost cap 28.000 € −750 € per half year; no iSFP bonus; hybrid only 60 % eligible.
 - Household context lives in App state `foerderKontext` (`DEFAULT_FOERDERKONTEXT`: self-user, > 50.000 €, iSFP yes, application period 0) and is passed as `gebaeude.foerderung`. It survives preset changes.
-- Simplifications: each measure = one application (caps per measure, not per calendar year), one dwelling, no WPB bonus (from 2027), no Fachplanung/Baubegleitung.
+- Application period table `ANTRAGSZEITRAEUME` (explicit values from Richtlinie Nr. 8.3.1 a / 8.4.4); entries with `ab2027` apply the Q1-2027 rules: WP base 15 % + 15 % Wertschöpfungsbonus if EU-made (`wpEuUrsprung`), WPB bonus +5 % on insulation (M2/M5, `daemmung: true`) if IST Endenergie > 250 and iSFP, no heating subsidy if a WP/biomass system from 2008+ exists.
+- Several dwellings: caps per Richtlinie staffel (2nd–6th +15.000 €/+15.000 €, EM with iSFP +30.000 €); KGB/income bonus only for one self-used unit (share 1/n).
+- Minimum investment 300 € per measure (Richtlinie Nr. 4).
+- Verified against full texts (10/2026): BEG-EM-Richtlinie ab 21.07.2026, KfW-Merkblatt 458 gültig ab 24.09.2026, Infoblatt Version 11.0.
+- Simplifications: caps per measure (real: per building and calendar year / per building for heating), one self-used dwelling, no Fachplanung/Baubegleitung, EU-origin proof rules not yet published.
 
 ### Quantity model (`berechneMengen`, `wendeMengenAn`)
 
@@ -166,7 +170,7 @@ Measure impact tables estimate the end-energy delta. Target Primärenergie and C
 
 - `Primärenergie = Endenergie × ENERGIE_TRAEGER_FAKTOREN[carrier].primaerenergie`
 - `CO₂ = Endenergie × ENERGIE_TRAEGER_FAKTOREN[carrier].co2KgProKwh`
-- Defaults follow GEG Anlage 4 for non-renewable primary energy factors and GEG Anlage 9 for emissions factors.
+- Defaults follow GModG (formerly GEG) Anlage 4 for non-renewable primary energy factors and Anlage 9 for emissions factors — verified 10/2026 against the consolidated text on gesetze-im-internet.de. The GModG government draft foresees 100 g/kWh for grid electricity in a future Anlage 9; currently in force: 560 g/kWh.
 - Heat pumps and direct electric heating use net electricity defaults: PE factor `1.8`, CO₂ `0.560 kg/kWh`.
 - Oil uses PE `1.1`, CO₂ `0.310 kg/kWh`; gas uses PE `1.1`, CO₂ `0.240 kg/kWh`; pellets/wood use PE `0.2`, CO₂ `0.020 kg/kWh`.
 - Fernwärme remains a demonstrator fallback because real energy certificates require network-specific factors.
@@ -269,6 +273,6 @@ After every task, verify the following invariants are still satisfied:
 | CO₂ values | Target CO₂ is factor-based from Endenergie and carrier; per-measure CO₂ labels are still static hints |
 | Multi-WE | Treats ZFH/DHH/RH identically to EFH |
 | Amortisation | Sidebar KPI static; 20-year chart uses escalation |
-| Legal basis | GEG replaced by GModG on 29.07.2026; PE/CO₂ factors still labelled GEG Anlage 4/9 (carry-over not verified) |
+| Legal basis | GEG renamed/replaced by GModG on 29.07.2026; Anlagen 4, 9, 10 verified unchanged (10/2026). Possible future change: grid electricity CO₂ 100 g/kWh |
 | PV revenue | Fixed 10 kWp assumed; no shading, orientation, or roof-area checks |
 | PV EV quote | Fixed 35 %/60 % split; real value depends on household consumption profile |

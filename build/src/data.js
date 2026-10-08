@@ -269,9 +269,11 @@ export const ENERGIEPREISE = {
   strom_haushalt: STROMPREIS_HAUSHALT, // Direktelektrische Heizung ohne Sondertarif
 };
 
-// GEG factor defaults used for target-state recalculation.
-// Primary energy: GEG Anlage 4 (non-renewable share). CO2e: GEG Anlage 9.
-// Fernwaerme is network-specific in real certificates; these are documented fallback values.
+// Faktoren für die Neuberechnung des Zielzustands. Geprüft 10/2026 an der konsolidierten Fassung
+// des GModG (vormals GEG, gesetze-im-internet.de): Primärenergie Anlage 4 (nicht erneuerbarer Anteil),
+// CO₂-Äquivalent Anlage 9. Hinweis: Der Regierungsentwurf (Drs. 21/6278) sieht für netzbezogenen
+// Strom künftig 100 g/kWh vor; in Kraft sind derzeit 560 g/kWh.
+// Fernwärme ist in echten Energieausweisen netzspezifisch; hier dokumentierte Fallback-Werte.
 export const ENERGIE_TRAEGER_FAKTOREN = {
   heizoel:              { primaerenergie: 1.1, co2KgProKwh: 0.310, label: "Heizoel" },
   erdgas:               { primaerenergie: 1.1, co2KgProKwh: 0.240, label: "Erdgas" },
@@ -397,7 +399,7 @@ export const MASSNAHMENPAKETE = [
     zu_beachten: "Dachdämmung erfordert statische Prüfung bei alter Dachkonstruktion. Baugenehmigung je nach Denkmalzone erforderlich. Schimmelrisiko durch erhöhte Luftdichtheit prüfen.",
     komfortsteigerung: "Deutlich wärmere Decken- und Wandoberflächen im OG — keine Kältestrahlung mehr. Geringerer Temperaturabfall über Nacht.",
     massnahmen: [
-      { id: "M2", kurztitel: "Dachdämmung", rolle: "energetisch", foerderprogramm: "em_huelle", titel: "Dachdämmung Obergeschoss-Decke (22 cm Mineralwolle)",
+      { id: "M2", kurztitel: "Dachdämmung", rolle: "energetisch", foerderprogramm: "em_huelle", daemmung: true, titel: "Dachdämmung Obergeschoss-Decke (22 cm Mineralwolle)",
         beschreibung: "Aufsparren- oder Zwischensparrendämmung, neue Dampfbremse, Luftdichtheitsschicht.",
         ...kostenAus("M2"), foerderquote: 0.15,
         co2_reduktion: 4.2, endenergie_delta: -22, primaerenergie_delta: -26,
@@ -465,7 +467,7 @@ export const MASSNAHMENPAKETE = [
     zu_beachten: "Bei denkmalgeschützten Fassaden Innendämmung als Alternative prüfen. Fensterlaibungen und Sockel mit dämmen, sonst Wärmebrücken. Gerüststandzeit 6–10 Wochen einplanen.",
     komfortsteigerung: "Deutlich wärmere Wandoberflächen — keine Kondensat- und Schimmelgefahr mehr. Schutz vor Sommerhitze (Phasenverschiebung). Wertsteigerung durch modernes Erscheinungsbild.",
     massnahmen: [
-      { id: "M5", kurztitel: "Fassadendämmung", rolle: "energetisch", foerderprogramm: "em_huelle", titel: "Fassadendämmung (WDVS 18 cm Mineralwolle)",
+      { id: "M5", kurztitel: "Fassadendämmung", rolle: "energetisch", foerderprogramm: "em_huelle", daemmung: true, titel: "Fassadendämmung (WDVS 18 cm Mineralwolle)",
         beschreibung: "Wärmedämmverbundsystem U<0,20, neue Fassadenfarbe, Fensterlaibungen.",
         ...kostenAus("M5"), foerderquote: 0.15,
         co2_reduktion: 6.5, endenergie_delta: -28, primaerenergie_delta: -33,
@@ -524,45 +526,54 @@ export function wendeBadStandardAn(m, standard) {
 
 // Nur iSFP-Bonus, kein Konjunktur-Booster mehr
 // ─── Förderlogik: BEG ab 21.07.2026 ───────────────────────────────────────
-// Quellen (geprüft über Auszüge, Volltexte waren aus der Umgebung nicht abrufbar):
-//  - BEG-Richtlinie Einzelmaßnahmen, gültig ab 21.07.2026 (BMWE, energiewechsel.de; BAnz AT 27.08.2026 B1)
-//  - KfW-Merkblatt 458 Heizungsförderung für Privatpersonen, Stand 09/2026
-//  - BAFA/KfW-Infoblatt förderfähige Maßnahmen (Umfeldmaßnahmen wie Gerüst, Neueindeckung,
-//    Putz, Rückbau der Altanlage sind förderfähig → kein Abzug von Sowieso-Kosten)
-// Vereinfachungen: jede Maßnahme = ein Antrag (Höchstgrenzen und iSFP-Schwelle je Maßnahme statt
-// je Wohneinheit und Kalenderjahr); nur 1 Wohneinheit; WPB-Bonus (ab 2027) nicht modelliert;
-// M7 wird als Heizungsoptimierung (BAFA) behandelt.
-export const FOERDERSTAND = "BEG ab 21.07.2026 · KfW 458 Stand 09/2026";
+// Geprüft am Volltext (10/2026):
+//  - BEG-Richtlinie Einzelmaßnahmen, gültig ab 21.07.2026 (BMWE; BAnz AT 27.08.2026 B1),
+//    v. a. Nr. 5.1–5.4, 8.3.1 (Höchstgrenzen), 8.4.1–8.4.6 (Fördersätze, Boni)
+//  - KfW-Merkblatt 458, gültig ab 24.09.2026
+//  - Infoblatt förderfähige Maßnahmen und Leistungen, Version 11.0 (16.09.2026): Umfeldmaßnahmen
+//    (Gerüst, Neueindeckung, Putz, Rückbau der Altanlage) sind förderfähig → kein Sowieso-Abzug;
+//    WPB = Endenergiebedarf ≥ 300 kWh/(m²·a) oder Bedarfsausweis Klasse H
+// Vereinfachungen: Höchstgrenzen und iSFP-Schwelle je Maßnahme (real: je Gebäude und Kalenderjahr
+// für Hülle/Optimierung, je Gebäude insgesamt für die Heizung); eine selbstgenutzte Wohneinheit;
+// Fachplanung/Baubegleitung (50 %) nicht enthalten; Regeln zum EU-Ursprung der WP noch nicht
+// veröffentlicht (Infoblatt 1.8: „im Laufe des 1. Quartals 2027“).
+export const FOERDERSTAND = "BEG-Richtlinie ab 21.07.2026 · KfW-Merkblatt 458 (09/2026) · Infoblatt 11.0";
 
 export const FOERDERREGELN = {
   em: {
-    isfpBonus: 0.05,          // nur auf förderfähige Kosten oberhalb der Schwelle
-    isfpSchwelle: 30000,      // = Höchstgrenze ohne iSFP (1. WE)
-    hoechstOhneIsfp: 30000,
-    hoechstMitIsfp: 60000,
-    mindestInvest: { em_huelle: 2000, em_optimierung: 300 },
+    isfpBonus: 0.05,          // nur auf förderfähige Kosten oberhalb der Höchstgrenze ohne iSFP (Nr. 8.4.2)
+    wpbBonus: 0.05,           // Dämmung (5.1 a) an Worst Performing Buildings, ab Q1 2027, mit iSFP (Nr. 8.4.3)
+    wpbEndenergieAb: 300,     // oder Energieausweis Klasse H (> 250)
+    hoechst: { ersteWE: 30000, we2bis6: 15000, abWE7: 8000 },          // ohne iSFP (Nr. 8.3.1 a)
+    hoechstMitIsfp: { ersteWE: 60000, we2bis6: 30000, abWE7: 15000 },
+    mindestInvest: 300,       // je Einzelmaßnahme 5.1–5.4 (Nr. 4)
   },
   heizung: {
     maxQuote: 0.70,
-    maxQuoteNiedrigesEinkommen: 0.80, // Selbstnutzer, Einkommensstufe bis 30.000 €
+    maxQuoteNiedrigesEinkommen: 0.80, // Selbstnutzer, anzusetzendes Einkommen bis 30.000 €
     einkommensbonus: { bis30: 0.40, bis40: 0.30, bis50: 0.10, ueber50: 0 },
-    klimabonusStart: 0.16,     // bis 31.01.2027, danach −4 Punkte je Halbjahr, ab 01.08.2028 0
-    klimabonusSchritt: 0.04,
-    hoechstStart: 28000,       // förderfähige Kosten 1. WE bis 31.01.2027, danach −750 € je Halbjahr
-    hoechstSchritt: 750,
+    weitereWE: { we2bis6: 15000, abWE7: 8000 },
     klimabonusMindestalter: 20, // Gas-/Biomasseheizung; Öl, Kohle, Gasetage, Nachtspeicher altersunabhängig
+    wertschoepfungsbonus: 0.15, // WP mit Ursprung in der Union, ab Q1 2027 (Nr. 8.4.6)
   },
 };
 export const BEG_BONUS = { isfp_bonus: FOERDERREGELN.em.isfpBonus }; // Altname für Texte
 
-// Antragszeiträume (Halbjahre) für die Heizungsförderung: index 0 = 21.07.2026–31.01.2027.
-export const ANTRAGSZEITRAEUME = Array.from({ length: 10 }, (_, i) => {
-  const startJahr = 2026 + Math.floor((i + 1) / 2);
-  const istFeb = i % 2 === 1;
-  const label = i === 0 ? "bis 01/2027"
-    : istFeb ? `02–07/${startJahr}` : `08/${startJahr}–01/${startJahr + 1}`;
-  return { index: i, label, jahr: i === 0 ? 2026 : startJahr };
-});
+// Antragszeiträume mit den jeweils gültigen Werten (Richtlinie Nr. 8.3.1 a, 8.4.1 c, 8.4.3, 8.4.4).
+// ab2027 = Regeln „ab Quartal 1 2027“ (WP-Grundförderung 15 % + Wertschöpfungsbonus, WPB-Bonus,
+// kein Heizungstausch bei vorhandenem EE-Wärmeerzeuger ab 2008). Beginn hier: 01.01.2027.
+export const ANTRAGSZEITRAEUME = [
+  { label: "bis 12/2026",      jahr: 2026, klimabonus: 0.16, hoechst: 28000, ab2027: false },
+  { label: "01/2027",          jahr: 2027, klimabonus: 0.16, hoechst: 28000, ab2027: true },
+  { label: "02–07/2027",       jahr: 2027, klimabonus: 0.12, hoechst: 27250, ab2027: true },
+  { label: "08/2027–01/2028",  jahr: 2027, klimabonus: 0.08, hoechst: 26500, ab2027: true },
+  { label: "02–07/2028",       jahr: 2028, klimabonus: 0.04, hoechst: 25750, ab2027: true },
+  { label: "08/2028–01/2029",  jahr: 2028, klimabonus: 0,    hoechst: 25000, ab2027: true },
+  { label: "02–07/2029",       jahr: 2029, klimabonus: 0,    hoechst: 24250, ab2027: true },
+  { label: "08/2029–01/2030",  jahr: 2029, klimabonus: 0,    hoechst: 23500, ab2027: true },
+  { label: "02–07/2030",       jahr: 2030, klimabonus: 0,    hoechst: 22750, ab2027: true },
+  { label: "ab 08/2030",       jahr: 2030, klimabonus: 0,    hoechst: 22000, ab2027: true },
+].map((z, index) => ({ ...z, index }));
 
 export const EINKOMMENSSTUFEN = [
   { value: "ueber50", label: "> 50.000 €" },
@@ -573,19 +584,20 @@ export const EINKOMMENSSTUFEN = [
 
 export const DEFAULT_FOERDERKONTEXT = {
   selbstnutzer: true,
-  einkommen: "ueber50",   // zu versteuerndes Haushaltseinkommen (Kinder: −10.000 € je Haushalt, vom Nutzer berücksichtigt)
+  einkommen: "ueber50",   // anzusetzendes Haushaltseinkommen (Kind im Haushalt: −10.000 €, vom Nutzer berücksichtigt)
   isfp: true,             // BAFA-geförderter iSFP liegt vor
   antragszeitraum: 0,     // Index in ANTRAGSZEITRAEUME
+  wpEuUrsprung: true,     // WP mit Ursprung in der Union (ab Q1 2027 relevant)
+  istEndenergie: null,    // für den WPB-Bonus, wird aus dem IST-Zustand gesetzt
 };
 
 export function heizungsFoerderParameter(antragszeitraum = 0) {
-  const r = FOERDERREGELN.heizung;
-  const i = Math.max(0, antragszeitraum | 0);
-  return {
-    klimabonus: Math.max(0, +(r.klimabonusStart - r.klimabonusSchritt * i).toFixed(2)),
-    hoechst: r.hoechstStart - r.hoechstSchritt * i,
-  };
+  const z = ANTRAGSZEITRAEUME[Math.max(0, Math.min(ANTRAGSZEITRAEUME.length - 1, antragszeitraum | 0))];
+  return { klimabonus: z.klimabonus, hoechst: z.hoechst, ab2027: z.ab2027, jahr: z.jahr };
 }
+
+const anzahlWE = (gebaeude) => Math.max(1, Math.round(Number(gebaeude.wohneinheiten) || 1));
+const staffel = (n, { ersteWE, we2bis6, abWE7 }) => ersteWE + we2bis6 * Math.min(Math.max(n - 1, 0), 5) + abWE7 * Math.max(n - 6, 0);
 
 // Klimageschwindigkeitsbonus: Selbstnutzer ersetzt Öl/Kohle/Gasetage/Nachtspeicher (jedes Alter)
 // oder Gas/Biomasse ab 20 Jahren Betriebsdauer zum Antragsjahr.
@@ -601,45 +613,64 @@ export function klimabonusBerechtigt(gebaeude, kontext) {
   return false;
 }
 
+// Worst Performing Building (Infoblatt 11.0, Nr. 1.6): Endenergiebedarf ≥ 300 oder Klasse H (> 250)
+export const istWorstPerformingBuilding = (istEndenergie) => Number(istEndenergie) > 250;
+
 // Eine Funktion für alle Förderbeträge (Sidebar, Paket-Blöcke, Bericht).
 // Rückgabe: förderfähige Kosten, Betrag, effektive Quote (Betrag ÷ Investition), Bestandteile für Tooltips.
 export function berechneFoerderung(m, gebaeude = {}) {
   const kontext = { ...DEFAULT_FOERDERKONTEXT, ...(gebaeude.foerderung || {}) };
   const invest = m.investition ?? 0;
   const grund = m.foerderquote ?? 0;
-  const leer = { foerderfaehig: 0, betrag: 0, quote: 0, klimaBonus: 0, bestandteile: [], programm: m.foerderprogramm || null };
-  if (!(grund > 0) || invest <= 0) return leer;
+  const leer = { foerderfaehig: 0, betrag: 0, quote: 0, klimaBonus: 0, bestandteile: [], programm: m.foerderprogramm || null, hinweis: null };
+  if (!(grund > 0) || invest < FOERDERREGELN.em.mindestInvest) return leer;
+  const n = anzahlWE(gebaeude);
+  const p = heizungsFoerderParameter(kontext.antragszeitraum);
 
   if (m.foerderprogramm === "heizung") {
     const r = FOERDERREGELN.heizung;
-    const { klimabonus, hoechst } = heizungsFoerderParameter(kontext.antragszeitraum);
+    // Ab Q1 2027 kein Heizungstausch, wenn bereits ein EE-Wärmeerzeuger (ab 2008) vorhanden ist (Nr. 5.3)
+    if (p.ab2027 && /Wärmepumpe|Biomasse|Pellets/i.test(gebaeude.heizung_typ || "") && Number(gebaeude.heizung_bj) >= 2008) {
+      return { ...leer, hinweis: "Ab Q1 2027 nicht förderfähig: vorhandener EE-Wärmeerzeuger ab 2008" };
+    }
+    const hoechst = p.hoechst + staffel(n, { ersteWE: 0, ...r.weitereWE });
     const foerderfaehig = Math.min(invest * (m.foerderfaehigAnteil ?? 1), hoechst);
-    const kgb = klimabonusBerechtigt(gebaeude, kontext) ? klimabonus : 0;
-    const ekb = kontext.selbstnutzer ? (r.einkommensbonus[kontext.einkommen] ?? 0) : 0;
+    // Ab Q1 2027 halbiert sich die WP-Grundförderung; der Wertschöpfungsbonus gleicht das bei EU-Ursprung aus
+    const wp = m.heizungstausch && p.ab2027;
+    const grundEff = wp ? grund / 2 : grund;
+    const wsb = wp && kontext.wpEuUrsprung ? r.wertschoepfungsbonus : 0;
+    // Boni nur für die selbstgenutzte Wohneinheit (Anteil 1/n)
+    const anteil = 1 / n;
+    const kgb = klimabonusBerechtigt(gebaeude, kontext) ? p.klimabonus * anteil : 0;
+    const ekb = kontext.selbstnutzer ? (r.einkommensbonus[kontext.einkommen] ?? 0) * anteil : 0;
     const max = kontext.selbstnutzer && kontext.einkommen === "bis30" ? r.maxQuoteNiedrigesEinkommen : r.maxQuote;
-    const quoteFF = Math.min(grund + kgb + ekb, max);
+    const summe = grundEff + wsb + kgb + ekb;
+    const quoteFF = Math.min(summe, max);
+    const pct = (x) => Math.round(x * 100);
     const bestandteile = [
-      { label: `Grundförderung ${Math.round(grund * 100)} %`, betrag: foerderfaehig * grund },
-      kgb > 0 && { label: `Klimageschwindigkeitsbonus ${Math.round(kgb * 100)} %`, betrag: foerderfaehig * kgb },
-      ekb > 0 && { label: `Einkommensbonus ${Math.round(ekb * 100)} %`, betrag: foerderfaehig * ekb },
-      grund + kgb + ekb > max && { label: `Deckelung auf ${Math.round(max * 100)} %`, betrag: foerderfaehig * (max - grund - kgb - ekb) },
+      { label: `Grundförderung ${pct(grundEff)} %`, betrag: foerderfaehig * grundEff },
+      wsb > 0 && { label: `Wertschöpfungsbonus ${pct(wsb)} % (WP aus der EU)`, betrag: foerderfaehig * wsb },
+      kgb > 0 && { label: `Klimageschwindigkeitsbonus ${pct(kgb)} %`, betrag: foerderfaehig * kgb },
+      ekb > 0 && { label: `Einkommensbonus ${pct(ekb)} %`, betrag: foerderfaehig * ekb },
+      summe > max && { label: `Deckelung auf ${pct(max)} %`, betrag: foerderfaehig * (max - summe) },
     ].filter(Boolean);
     const betrag = foerderfaehig * quoteFF;
-    return { foerderfaehig, betrag, quote: betrag / invest, quoteFoerderfaehig: quoteFF, klimaBonus: kgb, bestandteile, programm: "heizung" };
+    return { foerderfaehig, betrag, quote: betrag / invest, quoteFoerderfaehig: quoteFF, klimaBonus: kgb, bestandteile, programm: "heizung", hinweis: null };
   }
 
-  // BEG EM (BAFA): Gebäudehülle, Heizungsoptimierung
+  // BEG EM (BAFA): Gebäudehülle (5.1), Heizungsoptimierung (5.4 a)
   const r = FOERDERREGELN.em;
-  const mindest = r.mindestInvest[m.foerderprogramm] ?? r.mindestInvest.em_huelle;
-  if (invest < mindest) return leer;
-  const foerderfaehig = Math.min(invest, kontext.isfp ? r.hoechstMitIsfp : r.hoechstOhneIsfp);
-  const isfpBasis = kontext.isfp ? Math.max(0, foerderfaehig - r.isfpSchwelle) : 0;
+  const ohneIsfp = staffel(n, r.hoechst);
+  const foerderfaehig = Math.min(invest, kontext.isfp ? staffel(n, r.hoechstMitIsfp) : ohneIsfp);
+  const isfpBasis = kontext.isfp ? Math.max(0, foerderfaehig - ohneIsfp) : 0;
+  const wpb = m.daemmung && kontext.isfp && p.ab2027 && istWorstPerformingBuilding(kontext.istEndenergie) ? r.wpbBonus : 0;
   const bestandteile = [
     { label: `Grundförderung ${Math.round(grund * 100)} %`, betrag: foerderfaehig * grund },
-    isfpBasis > 0 && { label: `iSFP-Bonus ${Math.round(r.isfpBonus * 100)} % auf ${Math.round(isfpBasis).toLocaleString("de-DE")} € über der Schwelle`, betrag: isfpBasis * r.isfpBonus },
+    isfpBasis > 0 && { label: `iSFP-Bonus ${Math.round(r.isfpBonus * 100)} % auf ${Math.round(isfpBasis).toLocaleString("de-DE")} € über ${ohneIsfp.toLocaleString("de-DE")} €`, betrag: isfpBasis * r.isfpBonus },
+    wpb > 0 && { label: `WPB-Bonus ${Math.round(wpb * 100)} % (Worst Performing Building)`, betrag: foerderfaehig * wpb },
   ].filter(Boolean);
-  const betrag = foerderfaehig * grund + isfpBasis * r.isfpBonus;
-  return { foerderfaehig, betrag, quote: betrag / invest, quoteFoerderfaehig: betrag / foerderfaehig, klimaBonus: 0, bestandteile, programm: m.foerderprogramm || "em_huelle" };
+  const betrag = foerderfaehig * (grund + wpb) + isfpBasis * r.isfpBonus;
+  return { foerderfaehig, betrag, quote: betrag / invest, quoteFoerderfaehig: betrag / foerderfaehig, klimaBonus: 0, bestandteile, programm: m.foerderprogramm || "em_huelle", hinweis: null };
 }
 
 // Summen für eine Liste (aktiver) Maßnahmen — z. B. ein Paket.
@@ -723,7 +754,7 @@ export const nichtEnergetischeIds = (pakete) => pakete.flatMap(p => p.massnahmen
 // ─── Berechnung ───────────────────────────────────────────────────────────
 
 // Energieeffizienzklasse wie im Energieausweis für Wohngebäude: aus der ENDenergie
-// in kWh/(m²·a) bezogen auf die Nutzfläche AN (Skala GEG Anlage 10, A+ bis H).
+// in kWh/(m²·a) bezogen auf die Gebäudenutzfläche AN (GModG § 86 mit Anlage 10, A+ bis H).
 // Hinweis: Der BAFA-iSFP nutzt eine eigene 7-stufige Farbskala auf Primärenergie-Basis;
 // die Primärenergie wird hier separat ausgewiesen und für das €/kWh-Ranking genutzt.
 export function berechneEffizienzklasse(endenergie) {
@@ -1074,7 +1105,7 @@ export function erstelleStartzustand(presetId) {
 export function berechneSzenario({ presetId, aktiveMassnahmen, wpWahl = "auto", overrides = {}, foerderung = DEFAULT_FOERDERKONTEXT }) {
   const raw = erstelleStartzustand(presetId);
   if (!raw) return null;
-  const start = { ...raw, gebaeude: { ...raw.gebaeude, foerderung } };
+  const start = { ...raw, gebaeude: { ...raw.gebaeude, foerderung: { ...DEFAULT_FOERDERKONTEXT, ...foerderung, istEndenergie: raw.ist.endenergie } } };
   const aktive = aktiveMassnahmen ?? start.aktiveMassnahmen;
   const { state, wp } = erstelleEffektivenBauteilState({
     bauteile_state: bauteileAlsState(start.bauteile), gebaeude: start.gebaeude, aktiveMassnahmen: aktive, wpWahl,

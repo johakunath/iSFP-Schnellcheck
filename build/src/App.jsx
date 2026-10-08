@@ -355,7 +355,10 @@ export default function App() {
   // Variante → Basiswerte (für den Editor); + Nutzer-Overrides, sortiert → effectivePakete.
   const basisPakete = useMemo(() => erstelleBasisPakete(resolvedWpVariante, gebaeude), [resolvedWpVariante, gebaeude]);
   // Gebäude + Förderannahmen: Grundlage aller Förderbeträge (berechneFoerderung liest gebaeude.foerderung).
-  const gebaeudeF = useMemo(() => ({ ...gebaeude, foerderung: foerderKontext }), [gebaeude, foerderKontext]);
+  const gebaeudeF = useMemo(
+    () => ({ ...gebaeude, foerderung: { ...foerderKontext, istEndenergie: ist.endenergie } }),
+    [gebaeude, foerderKontext, ist.endenergie]
+  );
   const effectivePakete = useMemo(
     () => erstelleEffektivePakete({ overrides: massnahmenOverrides, varianteKey: resolvedWpVariante, bauteile_state: effectiveBauteilState, gebaeude }),
     [massnahmenOverrides, resolvedWpVariante, effectiveBauteilState, gebaeude]
@@ -519,7 +522,7 @@ export default function App() {
               <NumberInput label="Baujahr"              value={gebaeude.baujahr}             onChange={v => updateGebaeude("baujahr", v)} min={1700} max={2030}
                 tooltip="Wird zur automatischen Ableitung der Bauteil-Noten verwendet (TABULA-Baualtersklassen)." />
               <NumberInput label="Wohneinheiten"        value={gebaeude.wohneinheiten}       onChange={v => updateGebaeude("wohneinheiten", v)} min={1} max={1000}
-                tooltip="Hat keinen Einfluss auf die Energierechnung in dieser Demo. Wird für die Dokumentation im Bericht verwendet." />
+                tooltip="Bestimmt die Förder-Höchstgrenzen (je weitere Wohneinheit höher). Klimageschwindigkeits- und Einkommensbonus gelten nur anteilig für eine selbstgenutzte Wohneinheit. Kein Einfluss auf die Energiebilanz." />
               <NumberInput label="Wohnfläche"           value={gebaeude.wohnflaeche}         onChange={v => updateGebaeude("wohnflaeche", v)} unit="m²" min={20}
                 tooltip="Bestimmt Heizkosten sowie Fenster- und Fußbodenheizungsfläche im Mengenmodell." />
               <NumberInput label="Gebäudenutzfläche AN" value={gebaeude.gebaeudenutzflaeche} onChange={v => updateGebaeude("gebaeudenutzflaeche", v)} unit="m²" min={20}
@@ -542,7 +545,7 @@ export default function App() {
                       foerderKontext.selbstnutzer ? "Selbstnutzer" : "Vermietet",
                       `Einkommen ${EINKOMMENSSTUFEN.find(e => e.value === foerderKontext.einkommen)?.label}`,
                       foerderKontext.isfp ? "mit iSFP" : "ohne iSFP",
-                      `Heizungsantrag ${ANTRAGSZEITRAEUME[foerderKontext.antragszeitraum]?.label}`,
+                      `Antrag ${ANTRAGSZEITRAEUME[foerderKontext.antragszeitraum]?.label}`,
                     ].join(" · ")}
                   </div>
                 )}
@@ -559,10 +562,14 @@ export default function App() {
                       onChange={v => updateFoerderKontext("isfp", v === "ja")}
                       options={[{ value: "ja", label: "ja" }, { value: "nein", label: "nein" }]}
                       tooltip="Ein geförderter iSFP hebt die Höchstgrenze für Hülle/Optimierung auf 60.000 € und gibt +5 % auf förderfähige Kosten über 30.000 €. Dieser Schnellcheck ist kein solcher iSFP." />
-                    <SelectInput label="Antrag Heizungstausch" value={String(foerderKontext.antragszeitraum)}
+                    <SelectInput label="Antragszeitraum" value={String(foerderKontext.antragszeitraum)}
                       onChange={v => updateFoerderKontext("antragszeitraum", Number(v))}
                       options={ANTRAGSZEITRAEUME.map(z => ({ value: String(z.index), label: z.label }))}
-                      tooltip="Klimageschwindigkeitsbonus 16 % bis 31.01.2027, danach −4 Punkte je Halbjahr, ab Aug 2028 entfallen. Förderfähige Kosten 28.000 €, danach −750 € je Halbjahr." />
+                      tooltip="Förderbedingungen zum Zeitpunkt des Antrags, für alle Maßnahmen. Heizung: Klimageschwindigkeitsbonus 16 % bis 01/2027, dann −4 Punkte je Halbjahr, ab 08/2028 entfallen; förderfähige Kosten 28.000 €, dann −750 € je Halbjahr. Ab Q1 2027: WP-Grundförderung 15 % (+15 % bei EU-Ursprung), WPB-Bonus +5 % auf Dämmung." />
+                    <SelectInput label="WP aus EU-Produktion" value={foerderKontext.wpEuUrsprung ? "ja" : "nein"}
+                      onChange={v => updateFoerderKontext("wpEuUrsprung", v === "ja")}
+                      options={[{ value: "ja", label: "ja" }, { value: "nein", label: "nein" }]}
+                      tooltip="Ab Q1 2027 gibt es den Wertschöpfungsbonus (+15 %) nur für Wärmepumpen mit Ursprung in der EU. Die Nachweisregeln sind noch nicht veröffentlicht." />
                     <div style={{ fontSize: 10, color: "var(--sec)", marginTop: 6, lineHeight: 1.4 }}>Stand: {FOERDERSTAND}. Keine Förderzusage.</div>
                   </div>
                 )}

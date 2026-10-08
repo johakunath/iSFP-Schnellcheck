@@ -123,7 +123,7 @@ test("Förderannahmen: later heating application lowers the subsidy", async ({ p
   await page.setViewportSize({ width: 1400, height: 900 });
   await loadApp(page);
   await page.locator("button", { hasText: "Förderannahmen" }).click();
-  await page.locator('select[aria-label="Antrag Heizungstausch"]').selectOption({ label: "08/2028–01/2029" });
+  await page.locator('select[aria-label="Antragszeitraum"]').selectOption({ label: "08/2028–01/2029" });
   await page.waitForTimeout(150);
   // M4: 25.000 € cap × 30 %, no Klimageschwindigkeitsbonus → 7.500 € instead of 12.880 €
   expect(await sidebarSumme(page, "Förderung")).toMatch(/21[.,]820/);
