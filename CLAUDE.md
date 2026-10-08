@@ -110,6 +110,10 @@ Area-based costs (`mengenbezug` in `kosten.js`: roof, façade, window, heated ar
 
 `kategorie: "energetisch"` (default) or `"modernisierung"` (no energy effect, e.g. Badsanierung). Non-energy measures: no impact, no score/badge, never pre-selected, no energy step in `berechneKumuliert`, costs in `k.modernisierung_*` (not in `eigenanteil`/amortisation). Sidebar shows "Weitere Modernisierung" + "Gesamtbudget" only when such a measure is active.
 
+### Badsanierung (P6 / B1)
+
+`kategorie: "modernisierung"`, opt-in (never pre-selected; kept when the energetic selection is re-derived). Cost = €/m² of the chosen standard (`BAD_STANDARDS`: einfach / mittel / gehoben → `KOSTENANSAETZE.BAD_*`) × `gebaeude.bad_flaeche` (default 8 m²), with a range (`spanne`). Values come from guide/supplier websites (evidenz `annahme`, sources listed). No subsidy. Shown as „Weitere Modernisierung“ + „Gesamtbudget“ in the sidebar; excluded from energy steps, ranking and amortisation.
+
 ### Cost registry (`kosten.js`)
 
 Every `investition`/`ohnehin_anteil` comes from `KOSTENANSAETZE` (measures reference it via `kostenansatz`). Each entry carries `region`, `bezugsjahr`, `mwst`, `einheit`, `einheitspreis`/`menge`, `spanne`, `evidenz` (`dokumentiert` | `abgeleitet` | `annahme`) and `quellen`. All current values are `annahme` (no documented source). Regional values go into `KOSTENANSAETZE_REGIONAL.BE`; `kostenAnsatzFuer(id, "BE")` falls back to DE with `fallback: true`. Tests enforce the metadata and that a non-`annahme` entry has sources. Do not add numbers without an evidence level.

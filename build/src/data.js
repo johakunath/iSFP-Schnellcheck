@@ -489,7 +489,38 @@ export const MASSNAHMENPAKETE = [
         impact: () => ({ endenergie_delta: 0, primaerenergie_delta: -12, co2_reduktion: 4.0 }) },
     ],
   },
+  {
+    id: "P6", nummer: 6, titel: "Badsanierung", zeitraum: "flexibel", farbe: "tuerkis",
+    begruendung: "Keine Energiewirkung — als Kostenposition für die Gesamtplanung. Wird getrennt vom energetischen Eigenanteil ausgewiesen.",
+    zu_beachten: "Kosten hängen stark von Größe, Ausstattung, Zustand der Leitungen und Barrierefreiheit ab. Mindestens zwei bis drei Angebote einholen. Bauzeit typischerweise 2–4 Wochen ohne nutzbares Bad. Gemeinsam mit Heizungs- oder Leitungsarbeiten planen spart doppelte Arbeiten.",
+    komfortsteigerung: "Zeitgemäßes Bad, auf Wunsch bodengleiche Dusche und barrierearme Nutzung.",
+    massnahmen: [
+      { id: "B1", kurztitel: "Badsanierung", rolle: "modernisierung", kategorie: "modernisierung",
+        titel: "Komplettsanierung Bad",
+        beschreibung: "Rückbau bis Rohbau, neue Wasser- und Abwasserleitungen, Abdichtung, Fliesen, Sanitärobjekte, Elektro.",
+        ...kostenAus("BAD_mittel"), foerderquote: 0,
+        foerderung_rechtsgrundlage: "kein BEG-Zuschuss (barrierereduzierende Umbauten ggf. über KfW, Konditionen prüfen)", foerderung_stelle: "—",
+        kostenherleitung: "Spanne je m² Badfläche nach Ausstattung, Basis Ratgeber- und Anbieterseiten 2025/2026 (keine Erhebung). Für eine belastbare Zahl Angebote einholen.",
+        impact: () => ({ endenergie_delta: 0, primaerenergie_delta: 0, co2_reduktion: 0 }) },
+    ],
+  },
 ];
+
+// Ausstattungsstandards der Badsanierung → Kostenansatz BAD_<key> in kosten.js
+export const BAD_STANDARDS = {
+  einfach: { label: "Einfach" },
+  mittel:  { label: "Mittelklasse" },
+  gehoben: { label: "Gehoben" },
+};
+export const BAD_DEFAULT = { flaeche: 8, standard: "mittel" };
+
+// B1 übernimmt Kosten und Spanne des gewählten Ausstattungsstandards.
+export function wendeBadStandardAn(m, standard) {
+  if (m.id !== "B1") return m;
+  const key = BAD_STANDARDS[standard] ? standard : BAD_DEFAULT.standard;
+  const ansatz = KOSTENANSAETZE[`BAD_${key}`];
+  return { ...m, investition: ansatz.wert, ohnehin_anteil: ansatz.ohnehin, kostenansatz: `BAD_${key}`, badStandard: key };
+}
 
 // Nur iSFP-Bonus, kein Konjunktur-Booster mehr
 // ─── Förderlogik: BEG ab 21.07.2026 ───────────────────────────────────────
@@ -654,6 +685,7 @@ export function berechneMengen(gebaeude = {}) {
     fassadenflaeche: refMenge("M5") * Math.sqrt(g.grundflaeche / ref.grundflaeche) * (g.geschosse / ref.geschosse) * (g.anteil / ref.anteil),
     fensterflaeche: refMenge("M3") * g.wohnflaeche / ref.wohnflaeche,
     beheizteFlaeche: refMenge("M7") * g.wohnflaeche / ref.wohnflaeche,
+    badflaeche: Number(gebaeude.bad_flaeche) > 0 ? Number(gebaeude.bad_flaeche) : BAD_DEFAULT.flaeche,
   };
 }
 
@@ -671,6 +703,7 @@ export function wendeMengenAn(m, mengen) {
     investition: rund100(m.investition * faktor),
     ohnehin_anteil: rund100((m.ohnehin_anteil ?? 0) * faktor),
     menge: { wert: Math.round(menge), einheit: ansatz.menge.einheit, faktor },
+    spanne: ansatz.spanne ? { min: rund100(ansatz.spanne.min * faktor), max: rund100(ansatz.spanne.max * faktor) } : undefined,
   };
 }
 
@@ -684,6 +717,8 @@ export const KATEGORIEN = {
   modernisierung: "Weitere Modernisierung",
 };
 export const istEnergetisch = (m) => (m.kategorie ?? "energetisch") === "energetisch";
+// Ids der nicht-energetischen Maßnahmen (opt-in, bleiben bei Neuableitung der Auswahl erhalten)
+export const nichtEnergetischeIds = (pakete) => pakete.flatMap(p => p.massnahmen).filter(m => !istEnergetisch(m)).map(m => m.id);
 
 // ─── Berechnung ───────────────────────────────────────────────────────────
 
@@ -982,7 +1017,9 @@ export function wendeWpVarianteAn(m, varianteKey) {
 // Basiswerte vor Nutzer-Overrides (Variante + Mengenmodell angewandt) — Referenz für den Editor.
 export function erstelleBasisPakete(varianteKey, gebaeude = null, pakete = MASSNAHMENPAKETE) {
   const mengen = gebaeude ? berechneMengen(gebaeude) : null;
-  return pakete.map(p => ({ ...p, massnahmen: p.massnahmen.map(m => wendeMengenAn(wendeWpVarianteAn(m, varianteKey), mengen)) }));
+  const badStandard = gebaeude?.bad_standard;
+  return pakete.map(p => ({ ...p, massnahmen: p.massnahmen.map(m =>
+    wendeMengenAn(wendeBadStandardAn(wendeWpVarianteAn(m, varianteKey), badStandard), mengen)) }));
 }
 
 // Pakete mit Variante + Nutzer-Overrides, Maßnahmen und Pakete nach €/kWh-Score sortiert.
@@ -1112,4 +1149,5 @@ export const PAKET_FARBEN = {
   lila:    { bg: "#7C3AED", text: "#FFFFFF", hell: "#EDE9FE" },
   gruen:   { bg: "#00843D", text: "#FFFFFF", hell: "#D0E8D8" },
   blau:    { bg: "#2563EB", text: "#FFFFFF", hell: "#DBEAFE" },
+  tuerkis: { bg: "#0E7C86", text: "#FFFFFF", hell: "#D5EEF0" },
 };

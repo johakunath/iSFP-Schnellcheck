@@ -95,6 +95,13 @@ export function getWarum(measureId, ctx) {
         : "Eigenständig kaum lohnend — Wirkung entsteht erst durch Wärmepumpe.";
       return { grund, jetzt };
     }
+    case "B1": {
+      const grund = "Keine Energiewirkung — die Badsanierung ist als Kostenposition aufgeführt, damit das Gesamtbudget vollständig ist.";
+      const jetzt = aktiveMassnahmen.includes("M7") || aktiveMassnahmen.includes("M4")
+        ? "Mit Heizungs- oder Wärmeverteilungsarbeiten koppeln: Leitungen, Fußbodenheizung und Warmwasser lassen sich dann in einem Zug erneuern."
+        : "Zeitpunkt frei wählbar. Sinnvoll, wenn Leitungen oder Abdichtung ohnehin erneuert werden müssen.";
+      return { grund, jetzt };
+    }
     default:
       return { grund: "", jetzt: "" };
   }

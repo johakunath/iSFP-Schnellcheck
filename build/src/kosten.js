@@ -45,6 +45,13 @@ const DEMO_ANNAHME = {
   quellen: [],           // [{ titel, herausgeber, jahr, url, seite, abrufdatum }]
 };
 
+// Fundstellen für Badkosten — Ratgeber/Anbieter, nur Orientierung (abgerufen 10/2026)
+const QUELLEN_BAD = [
+  { titel: "Badsanierung Kosten pro m²: Preise & Tabelle 2026", herausgeber: "profirechner.de", jahr: 2026, url: "https://profirechner.de/badsanierung-kosten-pro-m%C2%B2-preise-tabelle-2026/", art: "Ratgeber" },
+  { titel: "Badsanierung Kosten 2026: Preise pro m² & Komplettbad", herausgeber: "kostenfinder.com", jahr: 2026, url: "https://www.kostenfinder.com/ratgeber/badezimmer-sanierung-kosten", art: "Ratgeber" },
+  { titel: "Badezimmer sanieren Berlin: Kosten", herausgeber: "city-sanierbau.de", jahr: 2026, url: "https://city-sanierbau.de/blog/sanierung/badezimmer-sanieren-berlin-2026/", art: "Anbieter (Berlin)" },
+];
+
 export const KOSTENANSAETZE = {
   M1: {
     ...DEMO_ANNAHME,
@@ -121,6 +128,32 @@ export const KOSTENANSAETZE = {
   WP_hybrid: {
     ...DEMO_ANNAHME, label: "WP-Hybrid (WP + Gaskessel)", wert: 24000, ohnehin: 4000,
     einheit: "pauschal", menge: { wert: 1, einheit: "Anlage" },
+  },
+
+  // Badsanierung (keine Energiewirkung). Spannen je m² Badfläche nach Ausstattung, für ein
+  // 8-m²-Referenzbad. Grundlage: Ratgeber- und Anbieterseiten (Stand 2025/2026), keine Erhebung —
+  // daher evidenz "annahme". Berliner Stundensätze sollen laut einer Quelle 10–15 % über dem
+  // Bundesschnitt liegen (nicht belegt, nicht angewandt). Ersetzen durch Angebote/BKI-Werte.
+  BAD_einfach: {
+    ...DEMO_ANNAHME, label: "Badsanierung einfach", wert: 10000, ohnehin: 0,
+    einheit: "€/m² Badfläche", einheitspreis: 1250, mengenbezug: "badflaeche",
+    menge: { wert: 8, einheit: "m² Badfläche" }, spanne: { min: 8000, max: 12000 },
+    quellen: QUELLEN_BAD,
+    herleitung: "1.000–1.500 €/m²: Standardfliesen, Serienobjekte, Leitungen und Abdichtung neu",
+  },
+  BAD_mittel: {
+    ...DEMO_ANNAHME, label: "Badsanierung Mittelklasse", wert: 14800, ohnehin: 0,
+    einheit: "€/m² Badfläche", einheitspreis: 1850, mengenbezug: "badflaeche",
+    menge: { wert: 8, einheit: "m² Badfläche" }, spanne: { min: 12000, max: 17600 },
+    quellen: QUELLEN_BAD,
+    herleitung: "1.500–2.200 €/m²: bodengleiche Dusche, Markenobjekte, Badmöbel",
+  },
+  BAD_gehoben: {
+    ...DEMO_ANNAHME, label: "Badsanierung gehoben", wert: 22800, ohnehin: 0,
+    einheit: "€/m² Badfläche", einheitspreis: 2850, mengenbezug: "badflaeche",
+    menge: { wert: 8, einheit: "m² Badfläche" }, spanne: { min: 17600, max: 28000 },
+    quellen: QUELLEN_BAD,
+    herleitung: "2.200–3.500 €/m²: großformatige Fliesen, Vorwandtechnik, hochwertige Armaturen",
   },
 
   // Begleitkosten (nicht förderfähig, nur informativ angezeigt)

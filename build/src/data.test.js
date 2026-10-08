@@ -39,6 +39,8 @@ import {
   heizungsFoerderParameter,
   klimabonusBerechtigt,
   DEFAULT_FOERDERKONTEXT,
+  istEnergetisch,
+  BAD_STANDARDS,
 } from "./data.js";
 import { KOSTENANSAETZE, REFERENZ_GEBAEUDE, kostenAnsatzFuer, kostenStatusText } from "./kosten.js";
 
@@ -378,7 +380,7 @@ describe("berechneFoerderung (BEG ab 21.07.2026)", () => {
 
   it("summiereMassnahmen matches berechneNachMassnahmen totals", () => {
     const { pakete, aktive, k, gebaeude } = appPfad("efhNachkrieg", ALL_IDS);
-    const aktiv = pakete.flatMap(p => p.massnahmen).filter(x => aktive.includes(x.id));
+    const aktiv = pakete.flatMap(p => p.massnahmen).filter(x => aktive.includes(x.id) && istEnergetisch(x));
     const sum = summiereMassnahmen(aktiv, gebaeude);
     expect(Math.round(sum.invest)).toBe(k.invest_gesamt);
     expect(Math.round(sum.foerderung)).toBe(k.foerderung_gesamt);
@@ -429,14 +431,14 @@ describe("Mengenmodell (berechneMengen / wendeMengenAn)", () => {
 });
 
 describe("non-energy measures (kategorie: modernisierung)", () => {
-  const bad = { id: "B1", kurztitel: "Bad", titel: "Badsanierung", kategorie: "modernisierung", rolle: "modernisierung",
+  const bad = { id: "BX", kurztitel: "Bad", titel: "Badsanierung", kategorie: "modernisierung", rolle: "modernisierung",
     investition: 20000, ohnehin_anteil: 0, foerderquote: 0 };
   const paketeMitBad = [...MASSNAHMENPAKETE, { id: "PB", nummer: 9, titel: "Bad", farbe: "blau", massnahmen: [bad] }];
   const { gebaeude, ist } = buildGebaeudeWithState(PRESETS.efhNachkrieg);
 
   it("cost is reported separately and does not change energy, subsidy or Eigenanteil", () => {
     const ohne = berechneNachMassnahmen(["M2"], ist, gebaeude, paketeMitBad);
-    const mit = berechneNachMassnahmen(["M2", "B1"], ist, gebaeude, paketeMitBad);
+    const mit = berechneNachMassnahmen(["M2", "BX"], ist, gebaeude, paketeMitBad);
     expect(mit.primaerenergie).toBe(ohne.primaerenergie);
     expect(mit.eigenanteil).toBe(ohne.eigenanteil);
     expect(mit.invest_gesamt).toBe(ohne.invest_gesamt);
@@ -445,16 +447,16 @@ describe("non-energy measures (kategorie: modernisierung)", () => {
   });
 
   it("only non-energy measures active → energy values stay at IST", () => {
-    const k = berechneNachMassnahmen(["B1"], ist, gebaeude, paketeMitBad);
+    const k = berechneNachMassnahmen(["BX"], ist, gebaeude, paketeMitBad);
     expect(k.primaerenergie).toBe(ist.primaerenergie);
     expect(k.co2).toBe(ist.co2);
   });
 
   it("no badge, no energy step, never pre-selected", () => {
-    const r = bewerteMassnahmen([bad], {}, gebaeude).find(x => x.id === "B1");
+    const r = bewerteMassnahmen([bad], {}, gebaeude).find(x => x.id === "BX");
     expect(r.empfohlen || r.nichtEmpfohlen).toBe(false);
-    expect(berechneKumuliert(["M2", "B1"], ist, gebaeude, paketeMitBad).map(s => s.paket.id)).toEqual(["P2"]);
-    expect(getDefaultAktiveMassnahmen(gebaeude, gebaeude.bauteile_state, paketeMitBad)).not.toContain("B1");
+    expect(berechneKumuliert(["M2", "BX"], ist, gebaeude, paketeMitBad).map(s => s.paket.id)).toEqual(["P2"]);
+    expect(getDefaultAktiveMassnahmen(gebaeude, gebaeude.bauteile_state, paketeMitBad)).not.toContain("BX");
   });
 });
 
@@ -598,7 +600,7 @@ describe("berechneKumuliert (efhNachkrieg, all measures)", () => {
   const k = berechneNachMassnahmen(allIds, ist, gebaeude);
 
   it("step count equals number of active packages", () => {
-    const activePkgs = MASSNAHMENPAKETE.filter(p => p.massnahmen.some(m => allIds.includes(m.id)));
+    const activePkgs = MASSNAHMENPAKETE.filter(p => p.massnahmen.some(m => allIds.includes(m.id) && istEnergetisch(m)));
     expect(steps.length).toBe(activePkgs.length);
   });
 
@@ -717,5 +719,37 @@ describe("reference area and efficiency class", () => {
   it("score thresholds were rescaled from Wohnfläche to AN (145/180)", () => {
     expect(SCORE_EMPFOHLEN_MAX).toBeCloseTo(10.5 * 145 / 180);
     expect(SCORE_NICHT_EMPFOHLEN_MIN).toBeCloseTo(20 * 145 / 180);
+  });
+});
+
+describe("Badsanierung (B1, kategorie modernisierung)", () => {
+  const ALL = MASSNAHMENPAKETE.flatMap(p => p.massnahmen.map(m => m.id));
+  const mitBad = (bad = {}) => berechneSzenario({ presetId: "efhNachkrieg", aktiveMassnahmen: ALL });
+
+  it("is never pre-selected and does not change energy values or the energetic Eigenanteil", () => {
+    expect(erstelleStartzustand("efhNachkrieg").aktiveMassnahmen).not.toContain("B1");
+    const ohne = berechneSzenario({ presetId: "efhNachkrieg", aktiveMassnahmen: ALL.filter(id => id !== "B1") }).k;
+    const mit = mitBad().k;
+    expect(mit.eigenanteil).toBe(ohne.eigenanteil);
+    expect(mit.primaerenergie).toBe(ohne.primaerenergie);
+    expect(mit.modernisierung_invest).toBe(14800);
+  });
+
+  it("cost = €/m² of the chosen standard × bath area, with a range", () => {
+    for (const [std, preis] of [["einfach", 1250], ["mittel", 1850], ["gehoben", 2850]]) {
+      const pak = erstelleBasisPakete("monovalent", { ...REFERENZ_GEBAEUDE, bad_flaeche: 10, bad_standard: std });
+      const b1 = pak.flatMap(p => p.massnahmen).find(m => m.id === "B1");
+      expect(b1.investition).toBe(preis * 10);
+      expect(b1.spanne.min).toBeLessThan(b1.investition);
+      expect(b1.spanne.max).toBeGreaterThan(b1.investition);
+    }
+    expect(Object.keys(BAD_STANDARDS)).toEqual(["einfach", "mittel", "gehoben"]);
+  });
+
+  it("gets no subsidy and no energy step", () => {
+    const b1 = MASSNAHMENPAKETE.flatMap(p => p.massnahmen).find(m => m.id === "B1");
+    expect(berechneFoerderung(b1, {}).betrag).toBe(0);
+    const s = berechneSzenario({ presetId: "efhNachkrieg", aktiveMassnahmen: ["B1"] });
+    expect(berechneKumuliert(["B1"], s.start.ist, s.gebaeude, s.pakete)).toEqual([]);
   });
 });

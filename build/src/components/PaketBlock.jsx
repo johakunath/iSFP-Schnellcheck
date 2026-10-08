@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  WP_VARIANTEN, berechneFoerderung, summiereMassnahmen, berechnePvErtrag, istEnergetisch,
+  WP_VARIANTEN, BAD_STANDARDS, BAD_DEFAULT, berechneFoerderung, summiereMassnahmen, berechnePvErtrag, istEnergetisch,
 } from "../data.js";
 import { KOSTENANSAETZE, kostenStatusText } from "../kosten.js";
 import { fmtEur } from "../helpers.jsx";
@@ -8,7 +8,7 @@ import { getWarum } from "../warum.js";
 import { PaketHaus, Tooltip, InfoIcon } from "./ui.jsx";
 
 // wp = bestimmeWpVariante-Ergebnis (key, autoKey, vorlauftemp, envAvg)
-const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, aktiveMassnahmen, empfohleneMassnahmen = [], nichtEmpfohleneMassnahmen = [], gebaeude = {}, bauteile_state = {}, wp, onWpVarianteChange = () => {} }) => {
+const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, aktiveMassnahmen, empfohleneMassnahmen = [], nichtEmpfohleneMassnahmen = [], gebaeude = {}, bauteile_state = {}, wp, onWpVarianteChange = () => {}, onGebaeudeChange = () => {} }) => {
   const aktiveMassnahmenInPaket = paket.massnahmen.filter(massnahme => aktiveMassnahmen.includes(massnahme.id));
   const summen        = summiereMassnahmen(aktiveMassnahmenInPaket, gebaeude);
   const summe_invest  = summen.invest;
@@ -267,6 +267,41 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                 </div>
               );
             })()}
+            {massnahme.id === "B1" && (
+              <div style={{ marginBottom: 12, background: "var(--bg)", border: "1px solid var(--bdr)", borderRadius: 3, padding: "10px 12px", fontSize: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                  <label htmlFor={`bad-flaeche-${paket.id}`} style={{ fontWeight: 600, color: "var(--txt)" }}>Badfläche</label>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                    <input id={`bad-flaeche-${paket.id}`} type="number" min={2} max={40} step={0.5}
+                      value={gebaeude.bad_flaeche ?? BAD_DEFAULT.flaeche}
+                      onChange={e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v > 0) onGebaeudeChange("bad_flaeche", Math.min(40, v)); }}
+                      style={{ width: 64, fontFamily: "'Geist Mono', monospace", fontSize: 12.5, textAlign: "right", background: "transparent",
+                               color: "var(--txt)", border: "1px solid var(--bdr)", borderRadius: 2, padding: "3px 6px" }} />
+                    <span style={{ color: "var(--sec)" }}>m²</span>
+                  </span>
+                </div>
+                <div style={{ fontWeight: 600, color: "var(--txt)", marginBottom: 6 }} id={`bad-standard-${paket.id}`}>Ausstattung</div>
+                <div role="radiogroup" aria-labelledby={`bad-standard-${paket.id}`} style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
+                  {Object.entries(BAD_STANDARDS).map(([key, st]) => {
+                    const isSelected = key === (massnahme.badStandard || BAD_DEFAULT.standard);
+                    const ansatz = KOSTENANSAETZE[`BAD_${key}`];
+                    return (
+                      <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 8px", borderRadius: 3, background: isSelected ? "rgba(42,139,122,0.15)" : "transparent", border: isSelected ? "1px solid var(--acc)" : "1px solid transparent" }}>
+                        <input type="radio" name={`bad-${paket.id}`} value={key} checked={isSelected} onChange={() => onGebaeudeChange("bad_standard", key)} style={{ accentColor: "#2A8B7A" }} />
+                        <span style={{ color: "var(--txt)", fontWeight: isSelected ? 600 : 400, minWidth: 92 }}>{st.label}</span>
+                        <span style={{ color: "var(--sec)", fontSize: 11 }}>{ansatz.herleitung}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {massnahme.spanne && (
+                  <div style={{ fontSize: 11.5, padding: "7px 10px", borderRadius: 3, background: "var(--surface2)", color: "var(--body)", border: "1px solid var(--bdr)" }}>
+                    Spanne für {massnahme.menge?.wert ?? BAD_DEFAULT.flaeche} m²: <b style={{ fontFamily: "'Geist Mono', monospace" }}>{fmtEur(massnahme.spanne.min)} – {fmtEur(massnahme.spanne.max)}</b> · gerechnet wird mit {fmtEur(massnahme.investition)}.
+                    <div style={{ marginTop: 4, color: "var(--sec)", fontSize: 10.5 }}>Orientierungswerte aus Ratgeber- und Anbieterseiten, keine Erhebung. Wird getrennt vom energetischen Eigenanteil ausgewiesen.</div>
+                  </div>
+                )}
+              </div>
+            )}
             {warumOffen.has(massnahme.id) && (
               <div style={{ marginTop: 8, background: "var(--info-bg)", border: "1px solid var(--info-bdr)",
                             borderRadius: 3, padding: "12px 14px", fontSize: 12, lineHeight: 1.6, color: "var(--info-txt)" }}>

@@ -7,7 +7,9 @@ import {
   berechneNachMassnahmen, berechneKumuliert, berechneEffizienzklasse, berechneHeizkosten,
   preisFuerHeizung, traegerFuerHeizung,
   bewerteMassnahmen, berechnePvErtrag, berechneHeizungWartung,
-  getDefaultAktiveMassnahmen, summiereMassnahmen, bezugsflaeche, SCORE_EMPFOHLEN_MAX, SCORE_NICHT_EMPFOHLEN_MIN,
+  getDefaultAktiveMassnahmen, summiereMassnahmen, bezugsflaeche, nichtEnergetischeIds,
+  SCORE_EMPFOHLEN_MAX, SCORE_NICHT_EMPFOHLEN_MIN,
+  MASSNAHMENPAKETE as MASSNAHMENPAKETE_BASIS, // intentional: nur für die Liste der opt-in-Ids, nicht für Kosten
   bauteileAlsState, erstelleStartzustand, erstelleEffektivenBauteilState,
   erstelleBasisPakete, erstelleEffektivePakete, ordneAbgleichNachWp, berechneWirtschaftlichkeit,
   DEFAULT_FOERDERKONTEXT, ANTRAGSZEITRAEUME, EINKOMMENSSTUFEN, FOERDERSTAND,
@@ -195,7 +197,12 @@ export default function App() {
       setSanierungsstandProBauteil(sanierungsstandAusBauteile(naechsteBauteile));
     }
     if (geaendert.some(f => MASSNAHMEN_NEU_FELDER.includes(f))) {
-      setAktiveMassnahmen(getDefaultAktiveMassnahmen(next, bauteileAlsState(naechsteBauteile)));
+      // Energetische Auswahl neu ableiten; gewählte Modernisierungen (z. B. Bad) bleiben erhalten
+      const optIn = nichtEnergetischeIds(MASSNAHMENPAKETE_BASIS);
+      setAktiveMassnahmen(prev => [
+        ...getDefaultAktiveMassnahmen(next, bauteileAlsState(naechsteBauteile)),
+        ...prev.filter(id => optIn.includes(id)),
+      ]);
     }
   }, [gebaeude, bauteile]);
 
@@ -698,7 +705,8 @@ export default function App() {
                 gebaeude={gebaeudeF}
                 bauteile_state={effectiveBauteilState}
                 wp={wp}
-                onWpVarianteChange={setWpVariante} />
+                onWpVarianteChange={setWpVariante}
+                onGebaeudeChange={updateGebaeude} />
             ))}
           </div>
         </Section>

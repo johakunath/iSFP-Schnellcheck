@@ -128,3 +128,18 @@ test("Förderannahmen: later heating application lowers the subsidy", async ({ p
   // M4: 25.000 € cap × 30 %, no Klimageschwindigkeitsbonus → 7.500 € instead of 12.880 €
   expect(await sidebarSumme(page, "Förderung")).toMatch(/21[.,]820/);
 });
+
+test("Badsanierung: opt-in, reported separately, survives a heating change", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await loadApp(page);
+  const block = page.locator("#paket-P6");
+  await block.getByText("Ausgeblendet").click();
+  await block.locator("input[type=radio][value=gehoben]").check();
+  await block.locator("input[type=number]").fill("10");
+  await page.waitForTimeout(150);
+  expect(await sidebarSumme(page, "Weitere Modernisierung")).toMatch(/28[.,]500/);
+  expect(await sidebarSumme(page, "Eigenanteil")).toMatch(/112[.,]600/);
+  await page.locator('select[aria-label="Heizung"]').selectOption("Erdgas Brennwert");
+  await page.waitForTimeout(150);
+  expect(await sidebarSumme(page, "Weitere Modernisierung")).toMatch(/28[.,]500/);
+});
