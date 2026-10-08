@@ -83,7 +83,7 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                 </label>
                 <span style={{ textDecoration: aktiv && !massnahmeAktiv ? "line-through" : "none" }}>{massnahme.titel}</span>
                 {massnahme._isMovedAbgleich && (
-                  <span style={{ background: "#EBF5F3", color: "#1B4840", border: "1px solid #8CBDB5", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", flexShrink: 0 }}>
+                  <span style={{ background: "var(--info-bg)", color: "var(--info-txt)", border: "1px solid var(--info-bdr)", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", flexShrink: 0 }}>
                     Pflicht nach BEG
                   </span>
                 )}
@@ -102,7 +102,7 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                   </Tooltip>
                 )}
                 {empfohleneMassnahmen.includes(massnahme.id) && !massnahmeAktiv && (
-                  <span className="print-hide" title="Empfohlene Maßnahme wurde deaktiviert" style={{ background: "#FEF2E8", color: "var(--acc)", border: "1px solid #F5C09A", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", fontWeight: 600, letterSpacing: "0.06em", flexShrink: 0 }}>
+                  <span className="print-hide" title="Empfohlene Maßnahme wurde deaktiviert" style={{ background: "var(--warn-bg)", color: "var(--acc)", border: "1px solid var(--warn-bdr)", padding: "1px 8px", borderRadius: 100, fontSize: 10, fontFamily: "'Geist Mono', monospace", fontWeight: 600, letterSpacing: "0.06em", flexShrink: 0 }}>
                     ⚠ Abgewählt
                   </span>
                 )}
@@ -209,7 +209,7 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                     })}
                   </div>
                   {hybridMitOel && (
-                    <div style={{ color: "var(--acc)", fontSize: 11.5, marginTop: 2, marginBottom: 6, padding: "5px 8px", background: "#FEF2E8", borderRadius: 3, border: "1px solid #F5C09A" }}>
+                    <div style={{ color: "var(--acc)", fontSize: 11.5, marginTop: 2, marginBottom: 6, padding: "5px 8px", background: "var(--warn-bg)", borderRadius: 3, border: "1px solid var(--warn-bdr)" }}>
                       ⚠ Hybrid-Gas schafft neue fossile Infrastruktur beim Ölgebäude. Monovalent oder Monoenergetisch bevorzugen.
                     </div>
                   )}
@@ -218,7 +218,7 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
                     marginTop: 6, fontSize: 11.5, padding: "7px 10px", borderRadius: 3,
                     background: vt <= 50 && envAvg >= 4 ? "rgba(27,104,58,0.08)" : "var(--surface2)",
                     color: "var(--body)",
-                    border: `1px solid ${vt <= 50 && envAvg >= 4 ? "#8CBDB5" : "var(--bdr)"}`,
+                    border: `1px solid ${vt <= 50 && envAvg >= 4 ? "var(--info-bdr)" : "var(--bdr)"}`,
                   }}>
                     {vt <= 50 && envAvg >= 4
                       ? `✓ Thermisch sehr gut geeignet (VT ${vt} °C) — Monovalent-Betrieb realistisch.`
@@ -268,8 +268,8 @@ const PaketBlock = ({ paket, aktiv, onToggle, onToggleMassnahme = () => {}, akti
               );
             })()}
             {warumOffen.has(massnahme.id) && (
-              <div style={{ marginTop: 8, background: "#EBF4F2", border: "1px solid #A8D5CD",
-                            borderRadius: 3, padding: "12px 14px", fontSize: 12, lineHeight: 1.6, color: "#1E3A35" }}>
+              <div style={{ marginTop: 8, background: "var(--info-bg)", border: "1px solid var(--info-bdr)",
+                            borderRadius: 3, padding: "12px 14px", fontSize: 12, lineHeight: 1.6, color: "var(--info-txt)" }}>
                 {warum.grund && (
                   <div style={{ marginBottom: 10 }}>
                     <span style={{ fontWeight: 600, color: "var(--acc)" }}>Warum diese Maßnahme: </span>{warum.grund}

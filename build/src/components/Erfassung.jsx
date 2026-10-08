@@ -164,7 +164,7 @@ export const ExtractionResult = ({ result, onDismiss }) => {
   const matchedCount = result.matched?.length ?? 0;
   return (
     <div className="print-hide" style={{
-      background: matchedCount > 0 ? "#F1F7F1" : "#FBF2E8",
+      background: matchedCount > 0 ? "var(--ok-bg)" : "var(--warn-bg)",
       border: `1.25px solid ${matchedCount > 0 ? "#34A030" : "#F07D00"}`,
       borderRadius: 3, padding: "18px 22px",
     }}>

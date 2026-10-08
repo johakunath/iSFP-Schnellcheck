@@ -15,6 +15,9 @@
   --neg: #B83A2E;
   --gold: #C8820A;
   --highlight: #FFFBE6;
+  --info-bg: #EBF4F2; --info-bdr: #A8D5CD; --info-txt: #1E3A35;
+  --warn-bg: #FEF2E8; --warn-bdr: #F5C09A;
+  --ok-bg: #F1F7F1;
 }
 [data-theme="dark"] {
   --bg: #0E0D0B;
@@ -30,6 +33,9 @@
   --neg: #D94F42;
   --gold: #E8A020;
   --highlight: #272310;
+  --info-bg: #14231F; --info-bdr: #2F5A51; --info-txt: #CFE6E0;
+  --warn-bg: #2A1A10; --warn-bdr: #6B4024;
+  --ok-bg: #13211A;
 }
 @media print {
   :root {
