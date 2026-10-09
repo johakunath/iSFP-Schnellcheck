@@ -142,4 +142,9 @@ test("Badsanierung: opt-in, reported separately, survives a heating change", asy
   await page.locator('select[aria-label="Heizung"]').selectOption("Erdgas Brennwert");
   await page.waitForTimeout(150);
   expect(await sidebarSumme(page, "Weitere Modernisierung")).toMatch(/28[.,]500/);
+  // print report carries the same modernisation block and total budget as the sidebar
+  const druck = await page.locator(".print-only").first().textContent();
+  expect(druck).toMatch(/Weitere Modernisierung/);
+  expect(druck).toMatch(/Komplettsanierung Bad/);
+  expect(druck).toMatch(new RegExp((await sidebarSumme(page, "Gesamtbudget")).replace(/[.\s€]/g, ".?")));
 });

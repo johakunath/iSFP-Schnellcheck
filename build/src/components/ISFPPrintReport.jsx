@@ -10,6 +10,10 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
     .filter(p => aktivePakete.includes(p.id))
     .map(p => ({ ...p, massnahmen: p.massnahmen.filter(m => aktiveMassnahmen.includes(m.id)) }))
     .filter(p => p.massnahmen.some(istEnergetisch));
+  // Modernisierungen ohne Energiewirkung (z. B. Bad): eigener Block, nicht Teil der Energieschritte
+  const modernisierungen = effectivePakete
+    .flatMap(p => p.massnahmen)
+    .filter(m => aktiveMassnahmen.includes(m.id) && !istEnergetisch(m));
   // Hinweis: Gesamt- und Gebäude-EEK basieren beide auf der Endenergie
   const co2Gesamt = Math.round(ist.co2 * gebaeude.gebaeudenutzflaeche);
   const co2Ziel = Math.round(k.co2 * gebaeude.gebaeudenutzflaeche);
@@ -137,6 +141,32 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid #D3CAB9", paddingTop: 3 }}>
                 <span style={{ color: "#1E1A15", fontWeight: 700 }}>Eigenanteil</span>
                 <span style={{ color: "#1E1A15", fontWeight: 700 }}>{fmtEur(k.eigenanteil)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* WEITERE MODERNISIERUNG — gleiche Summen wie in der Sidebar */}
+        {modernisierungen.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", background: "#F1EDE4", border: "1px solid #D3CAB9", marginTop: 4, marginBottom: 2 }}>
+            <div style={{ flex: 1, padding: "8px 14px" }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.18em", color: "#6B6259", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 3 }}>
+                Weitere Modernisierung (ohne Energiewirkung)
+              </div>
+              {modernisierungen.map(m => (
+                <div key={m.id} style={{ fontSize: 11, color: "#3A332B", lineHeight: 1.45 }}>
+                  {m.titel}{m.spanne ? ` · Spanne ${fmtEur(m.spanne.min)} – ${fmtEur(m.spanne.max)}` : ""}
+                </div>
+              ))}
+            </div>
+            <div style={{ flexShrink: 0, fontFamily: "'Geist Mono', monospace", fontSize: 11.5, padding: "8px 14px", borderLeft: "1px solid #D3CAB9", minWidth: 180 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 3 }}>
+                <span style={{ color: "#6B6259" }}>Modernisierung</span>
+                <span style={{ color: "#1E1A15", fontWeight: 600 }}>{fmtEur(k.modernisierung_eigenanteil)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid #D3CAB9", paddingTop: 3 }}>
+                <span style={{ color: "#1E1A15", fontWeight: 700 }}>Gesamtbudget</span>
+                <span style={{ color: "#1E1A15", fontWeight: 700 }}>{fmtEur(k.eigenanteil + k.modernisierung_eigenanteil)}</span>
               </div>
             </div>
           </div>
