@@ -1,26 +1,33 @@
 import React from "react";
 import { fmt, fmtEur, textColorFor, waermeEEK, EnergyBar } from "../helpers.jsx";
-import { MASSNAHMENPAKETE, EFFIZIENZ_FARBEN, PAKET_FARBEN, BEG_BONUS, berechneEffizienzklasse, berechnePvErtrag, berechneHeizungWartung, traegerFuerHeizung } from "../data.js";
+import { MASSNAHMENPAKETE, EFFIZIENZ_FARBEN, PAKET_FARBEN, berechneEffizienzklasse, berechnePvErtrag, summiereMassnahmen, istEnergetisch } from "../data.js";
 
-const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen, gebaeude, kumuliert, effectivePakete = MASSNAHMENPAKETE, resolvedWpVariante = "monovalent" }) => {
-  const istKlasse = berechneEffizienzklasse(ist.primaerenergie);
-  const aktivePaketeObj = effectivePakete.filter(p => aktivePakete.includes(p.id));
+// wirtschaftlichkeit = dieselbe berechneWirtschaftlichkeit-Rechnung wie Sidebar und 20-Jahr-Chart
+const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen, gebaeude, kumuliert, effectivePakete = MASSNAHMENPAKETE, wirtschaftlichkeit: w, eskalationIst = 0, eskalationZiel = 0 }) => {
+  const istKlasse = berechneEffizienzklasse(ist.endenergie);
+  // Nur aktive Maßnahmen je Paket; Pakete ohne energetische Maßnahme sind keine Energieschritte (wie berechneKumuliert)
+  const aktivePaketeObj = effectivePakete
+    .filter(p => aktivePakete.includes(p.id))
+    .map(p => ({ ...p, massnahmen: p.massnahmen.filter(m => aktiveMassnahmen.includes(m.id)) }))
+    .filter(p => p.massnahmen.some(istEnergetisch));
+  // Modernisierungen ohne Energiewirkung (z. B. Bad): eigener Block, nicht Teil der Energieschritte
+  const modernisierungen = effectivePakete
+    .flatMap(p => p.massnahmen)
+    .filter(m => aktiveMassnahmen.includes(m.id) && !istEnergetisch(m));
+  // Hinweis: Gesamt- und Gebäude-EEK basieren beide auf der Endenergie
   const co2Gesamt = Math.round(ist.co2 * gebaeude.gebaeudenutzflaeche);
   const co2Ziel = Math.round(k.co2 * gebaeude.gebaeudenutzflaeche);
   const kostenEinsparPct = heizkostenIst > 0 ? Math.round((1 - k.heizkosten_gesamt / heizkostenIst) * 100) : 0;
 
-  const hatWP = aktiveMassnahmen.includes("M4");
   const hasPV = aktiveMassnahmen.includes("M6");
-  const pvRevenue = hasPV ? berechnePvErtrag(hatWP).gesamtEur : 0;
-  const istTraeger = traegerFuerHeizung(gebaeude.heizung_typ);
-  const { istJahr: wartungIst, zielJahr: wartungZiel } = berechneHeizungWartung({
-    traeger: istTraeger, wpVariante: resolvedWpVariante, hatWP, hatPV: hasPV,
-  });
-  const annualNetSaving = Math.round(heizkostenIst - k.heizkosten_gesamt + pvRevenue + wartungIst - wartungZiel);
+  const annualNetSaving = Math.round(w.jaehrlicheEinsparung);
   const amortYears = annualNetSaving > 0 && k.eigenanteil > 0 ? Math.round(k.eigenanteil / annualNetSaving) : null;
-  const H = 20;
-  const ohneEur20 = Math.round((heizkostenIst + wartungIst) * H);
-  const mitEur20 = Math.round(k.eigenanteil + (k.heizkosten_gesamt + wartungZiel) * H - pvRevenue * H);
+  const H = w.jahre;
+  const ohneEur20 = Math.round(w.ohneSanierung);
+  const mitEur20 = Math.round(w.mitSanierung);
+  const eskalText = (eskalationIst === 0 && eskalationZiel === 0)
+    ? "statische Preise"
+    : `Preissteigerung IST ${Number(eskalationIst).toFixed(1).replace(".", ",")} % / ZIEL ${Number(eskalationZiel).toFixed(1).replace(".", ",")} % p. a.`;
 
   return (
     <div className="print-only" style={{ fontFamily: "'Geist', sans-serif", color: "#1E1A15" }}>
@@ -74,13 +81,9 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
           const step = kumuliert[i];
           const nachherKlasse = step.nachher.effizienzklasse;
           const farbe = PAKET_FARBEN[paket.farbe];
-          const summeInvest = paket.massnahmen.reduce((s, m) => s + m.investition, 0);
-          const summeFoerder = Math.round(paket.massnahmen.reduce((s, m) => {
-            const netto = m.investition - (m.ohnehin_anteil ?? 0);
-            const klimaBonus = (m.id === "M4" && /Heizöl|Erdgas/i.test(gebaeude.heizung_typ || "")) ? 0.10 : 0;
-            const quote = m.foerderquote > 0 ? Math.min(m.foerderquote + BEG_BONUS.isfp_bonus + klimaBonus, 0.5) : 0;
-            return s + netto * quote;
-          }, 0));
+          const summen = summiereMassnahmen(paket.massnahmen, gebaeude);
+          const summeInvest = summen.invest;
+          const summeFoerder = Math.round(summen.foerderung);
           return (
             <div key={paket.id} style={{ display: "flex", alignItems: "stretch", marginBottom: 2, minHeight: 46 }}>
               <div style={{
@@ -143,6 +146,32 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
           </div>
         )}
 
+        {/* WEITERE MODERNISIERUNG — gleiche Summen wie in der Sidebar */}
+        {modernisierungen.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", background: "#F1EDE4", border: "1px solid #D3CAB9", marginTop: 4, marginBottom: 2 }}>
+            <div style={{ flex: 1, padding: "8px 14px" }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.18em", color: "#6B6259", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 3 }}>
+                Weitere Modernisierung (ohne Energiewirkung)
+              </div>
+              {modernisierungen.map(m => (
+                <div key={m.id} style={{ fontSize: 11, color: "#3A332B", lineHeight: 1.45 }}>
+                  {m.titel}{m.spanne ? ` · Spanne ${fmtEur(m.spanne.min)} – ${fmtEur(m.spanne.max)}` : ""}
+                </div>
+              ))}
+            </div>
+            <div style={{ flexShrink: 0, fontFamily: "'Geist Mono', monospace", fontSize: 11.5, padding: "8px 14px", borderLeft: "1px solid #D3CAB9", minWidth: 180 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 3 }}>
+                <span style={{ color: "#6B6259" }}>Modernisierung</span>
+                <span style={{ color: "#1E1A15", fontWeight: 600 }}>{fmtEur(k.modernisierung_eigenanteil)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid #D3CAB9", paddingTop: 3 }}>
+                <span style={{ color: "#1E1A15", fontWeight: 700 }}>Gesamtbudget</span>
+                <span style={{ color: "#1E1A15", fontWeight: 700 }}>{fmtEur(k.eigenanteil + k.modernisierung_eigenanteil)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* WIRTSCHAFTLICHKEIT KOMPAKT */}
         {amortYears && (
           <div style={{ display: "flex", gap: 0, border: "1px solid #D3CAB9", background: "#F8F5EF", marginTop: 4, marginBottom: 2 }}>
@@ -155,7 +184,8 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
               </div>
             </div>
             <div style={{ flex: 1, padding: "8px 14px" }}>
-              <div style={{ fontSize: 10, letterSpacing: "0.18em", color: "#6B6259", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 3 }}>20-Jahr-Bilanz</div>
+              <div style={{ fontSize: 10, letterSpacing: "0.18em", color: "#6B6259", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", marginBottom: 3 }}>{H}-Jahr-Bilanz</div>
+              <div style={{ fontSize: 9.5, color: "#6B6259", marginBottom: 3, fontFamily: "'Geist Mono', monospace" }}>{eskalText}</div>
               <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
                   <span style={{ color: "#6B6259" }}>Ohne Sanierung</span>
@@ -166,7 +196,7 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
                   <span style={{ color: mitEur20 < ohneEur20 ? "#00843D" : "#1E1A15", fontWeight: 600 }}>{fmtEur(mitEur20)}</span>
                 </div>
                 {mitEur20 < ohneEur20 && (
-                  <div style={{ fontSize: 10, color: "#00843D", marginTop: 3 }}>Einsparung {fmtEur(ohneEur20 - mitEur20)} über 20 J</div>
+                  <div style={{ fontSize: 10, color: "#00843D", marginTop: 3 }}>Einsparung {fmtEur(ohneEur20 - mitEur20)} über {H} J</div>
                 )}
               </div>
             </div>
@@ -211,14 +241,10 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
         const heizTypFuerEEK = hatWPNachDiesemStep ? "Wärmepumpe Luft/Wasser" : gebaeude.heizung_typ;
         const waerveEEK = waermeEEK(heizTypFuerEEK);
 
-        const summeInvest = paket.massnahmen.reduce((s, m) => s + m.investition, 0);
-        const summeFoerderfaehig = paket.massnahmen.reduce((s, m) => s + (m.investition - (m.ohnehin_anteil ?? 0)), 0);
-        const summeFoerder = Math.round(paket.massnahmen.reduce((s, m) => {
-          const netto = m.investition - (m.ohnehin_anteil ?? 0);
-          const klimaBonus = (m.id === "M4" && /Heizöl|Erdgas/i.test(gebaeude.heizung_typ || "")) ? 0.10 : 0;
-          const quote = m.foerderquote > 0 ? Math.min(m.foerderquote + BEG_BONUS.isfp_bonus + klimaBonus, 0.5) : 0;
-          return s + netto * quote;
-        }, 0));
+        const summen = summiereMassnahmen(paket.massnahmen, gebaeude);
+        const summeInvest = summen.invest;
+        const summeFoerderfaehig = summen.foerderfaehig;
+        const summeFoerder = Math.round(summen.foerderung);
         const eigenanteil = summeInvest - summeFoerder;
         const foerderStellen = paket.massnahmen
           .map(m => `${m.foerderung_rechtsgrundlage} (${m.foerderung_stelle})`)
@@ -300,8 +326,8 @@ const ISFPPrintReport = ({ ist, k, heizkostenIst, aktivePakete, aktiveMassnahmen
                   <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, border: "1px solid #E2DBD0" }}>
                     {[
                       { label: "Investitionskosten gesamt", val: fmtEur(summeInvest), color: "#1E1A15", bg: "#F8F5EF" },
-                      { label: "Davon Energiesparmaßnahmen (förderfähig)", val: fmtEur(summeFoerderfaehig), color: "#1E1A15", bg: "#FFF" },
-                      { label: `Förderung inkl. iSFP-Bonus 5 % · ${foerderStellen}`, val: `− ${fmtEur(summeFoerder)}`, color: "#00843D", bg: "#F1F7F1" },
+                      { label: "Davon förderfähig", val: fmtEur(summeFoerderfaehig), color: "#1E1A15", bg: "#FFF" },
+                      { label: `Förderung · ${foerderStellen}`, val: `− ${fmtEur(summeFoerder)}`, color: "#00843D", bg: "#F1F7F1" },
                       { label: "Ihr Eigenanteil", val: fmtEur(eigenanteil), color: "#1E1A15", bg: "#F8F5EF", bold: true },
                     ].map(({ label, val, color, bg, bold }) => (
                       <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 11px", background: bg, borderBottom: "1px solid #E2DBD0" }}>

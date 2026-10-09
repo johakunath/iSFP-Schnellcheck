@@ -17,14 +17,23 @@ Eligible building types: Einfamilienhaus (EFH), Zweifamilienhaus (ZFH), Doppelha
 ```
 build/
   src/
-    App.jsx               — React UI (main state, hooks, render logic) ~2,000 lines
+    App.jsx               — State, handlers, derived memos, page layout (~730 lines)
+    data.js               — Data model, measures, presets, calculation engine (pure, no React)
+    kosten.js             — Cost registry: every investment value + region/year/unit/VAT/evidence
+    warum.js              — "Warum diese Maßnahme / warum jetzt" texts
     helpers.jsx           — Shared formatting helpers + EnergyBar component
-    data.js               — Data model, measures, presets, calculation engine
-    data.test.js          — Vitest unit tests for data.js functions
+    data.test.js          — Vitest unit tests for data.js / kosten.js
     pdfExtract.js         — PDF energy certificate parsing (pdf.js)
     printExport.js        — window.print() export helper
     input.css             — Tailwind source + CSS variable tokens
     components/
+      ui.jsx              — Icons, Tooltip, inputs, Section/Card, EffizienzBadge, eekTextFarbe
+      Erfassung.jsx       — PresetPicker, PDF review panel, BauteilKachel
+      PaketBlock.jsx      — One package with its measures, WP variant picker, cost lines
+      Ergebnis.jsx        — VorherNachher, EekArrowScale, MergedTable (step table)
+      Diagramme.jsx       — EnergieVerlaufChart, KostenvergleichChart (20-year break-even)
+      ErgebnisUebersicht.jsx — Shared sidebar/drawer content + MobileResultsDrawer
+      Hintergruende.jsx   — "Hintergründe & Annahmen" incl. live example calculation
       ISFPPrintReport.jsx — Print-only iSFP report
       MassnahmenEditor.jsx — Collapsible cost/Förderquote editor
   build.mjs / assemble.mjs / verify.mjs — build pipeline
@@ -42,8 +51,9 @@ Run `npm test` from `build/` after any change to `data.js`.
 
 ### Key components
 
-- **`App.jsx`** — main state + UI; all hooks, package blocks, Ergebnis section
-- **`MobileResultsDrawer`** — bottom-sheet for mobile (<768 px); mirrors Ergebnis sidebar
+- **`App.jsx`** — main state + UI wiring; all derived values come from `data.js` builders
+- **`ErgebnisUebersicht`** — one component rendered in the desktop sidebar AND the mobile drawer (no duplicate markup)
+- **`MobileResultsDrawer`** — bottom-sheet for mobile (<1024 px)
 - **`ISFPPrintReport`** — `.print-only` component; stays light (not dark-mode themed)
 - **`MassnahmenEditor`** — collapsible per-measure `investition`/`foerderquote` editor
 
@@ -53,7 +63,15 @@ Run `npm test` from `build/` after any change to `data.js`.
 
 ### effectivePakete
 
-`effectivePakete` is a derived memo in App merging user-edited `massnahmenOverrides` into `MASSNAHMENPAKETE`. All downstream calculations and UI use `effectivePakete` — never raw `MASSNAHMENPAKETE` directly. There are exactly 3 intentional exceptions, each marked `// intentional:`.
+Derivation chain (all pure functions in `data.js`, used by App and by `berechneSzenario` in tests):
+
+1. `erstelleStartzustand(presetId)` — gebaeude, ist, bauteile (incl. `bauteile_overrides`), default measures. Used for initial state AND preset clicks.
+2. `erstelleEffektivenBauteilState(...)` — M7 active → `verteilung: 7`; `bestimmeWpVariante` resolves the WP variant (the only place that does).
+3. `erstelleBasisPakete(variante, gebaeude)` — M4 takes cost/quote of the variant; area-based costs are scaled by the quantity model (editor shows these as defaults).
+4. `erstelleEffektivePakete(...)` — + user `massnahmenOverrides` (overrides win over variant costs), sorted by score.
+5. `ordneAbgleichNachWp(...)` — M1 moves to the end of P3 when M4 is active → `dynamicPakete`.
+
+All cost/subsidy display uses `dynamicPakete`/`effectivePakete` plus `berechneFoerderung`/`summiereMassnahmen`. App.jsx has no raw `MASSNAHMENPAKETE` reference. Never derive costs in a `useEffect` that writes into overrides (that caused first-load ≠ preset-click numbers).
 
 ### bauteile_state
 
@@ -61,12 +79,48 @@ Each building has stufe (1–7) ratings for: `waende`, `dach`, `boden`, `fenster
 
 ### bewerteMassnahmen (priority scorer)
 
-`score = invest_netto / pe_saved` [€ per kWh PE saved]. Lower = better value.
+`score = invest_netto / pe_saved` [€ per kWh PE saved per year, whole building = ΔPE × AN]. Lower = better value.
 
-- `empfohlen: true` — score < **10.5** (absolute threshold, not relative)
-- `nichtEmpfohlen: true` — score > **20.0** or Infinity
+- `empfohlen: true` — score < `SCORE_EMPFOHLEN_MAX` (= 10.5 × 145/180 ≈ 8.46; rescaled when the area basis moved from Wohnfläche to AN so badges stay the same)
+- `nichtEmpfohlen: true` — score > `SCORE_NICHT_EMPFOHLEN_MIN` (= 20 × 145/180 ≈ 16.1) or Infinity
+
+### Reference area and efficiency class
+
+- All kWh/(m²·a) values (Endenergie, PE, CO₂) refer to the usable area **AN** (`bezugsflaeche(gebaeude)`, fallback Wohnfläche × 180/145), as in the Energieausweis. Heating costs = Endenergie × AN × price.
+- `berechneEffizienzklasse(endenergie)`: A+–H from **Endenergie** (Energieausweis scale, GEG Anlage 10). The BAFA iSFP additionally uses a 7-step PE colour scale; PE is shown separately and drives the €/kWh ranking.
 
 BADGE_EXEMPT roles (`pflichtschritt`, `enabler`, `systempfad`, `begleitkosten`) never receive badges.
+
+### Subsidies (`berechneFoerderung`, `FOERDERREGELN`) — BEG ab 21.07.2026
+
+Single function for every Förder number on screen and in print. Rules (KfW-Merkblatt 458 Stand 09/2026, BEG-EM-Richtlinie ab 21.07.2026):
+
+- Routing per measure via `foerderprogramm`: `heizung` (M4, KfW 458), `em_huelle` (M2/M3/M5), `em_optimierung` (M1/M7), none (M6).
+- Förderfähig = full measure cost (Umfeldmaßnahmen incl.), **no Sowieso deduction**; `ohnehin_anteil` is informational only.
+- EM: 15 % base; cap 30.000 € (60.000 € with BAFA-funded iSFP) for the first dwelling; iSFP bonus +5 % only on eligible cost above the cap without iSFP.
+- Heizung: 30 % base + Klimageschwindigkeitsbonus 16 % (self-user; oil/coal/Gasetage/Nachtspeicher any age, gas/biomass ≥ 20 years; −4 points per half year, 0 from 08/2028) + income bonus 40/30/10 %; cap 70 % (80 % for income ≤ 30.000 €); eligible cost cap 28.000 € −750 € per half year; no iSFP bonus; hybrid only 60 % eligible.
+- Household context lives in App state `foerderKontext` (`DEFAULT_FOERDERKONTEXT`: self-user, > 50.000 €, iSFP yes, application period 0) and is passed as `gebaeude.foerderung`. It survives preset changes.
+- Application period table `ANTRAGSZEITRAEUME` (explicit values from Richtlinie Nr. 8.3.1 a / 8.4.4); entries with `ab2027` apply the Q1-2027 rules: WP base 15 % + 15 % Wertschöpfungsbonus if EU-made (`wpEuUrsprung`), WPB bonus +5 % on insulation (M2/M5, `daemmung: true`) if IST Endenergie > 250 and iSFP, no heating subsidy if a WP/biomass system from 2008+ exists.
+- Several dwellings: caps per Richtlinie staffel (2nd–6th +15.000 €/+15.000 €, EM with iSFP +30.000 €); KGB/income bonus only for one self-used unit (share 1/n).
+- Minimum investment 300 € per measure (Richtlinie Nr. 4).
+- Verified against full texts (10/2026): BEG-EM-Richtlinie ab 21.07.2026, KfW-Merkblatt 458 gültig ab 24.09.2026, Infoblatt Version 11.0.
+- Simplifications: caps per measure (real: per building and calendar year / per building for heating), one self-used dwelling, no Fachplanung/Baubegleitung, EU-origin proof rules not yet published.
+
+### Quantity model (`berechneMengen`, `wendeMengenAn`)
+
+Area-based costs (`mengenbezug` in `kosten.js`: roof, façade, window, heated area) scale relative to `REFERENZ_GEBAEUDE` (= efhNachkrieg: 145 m² Wfl, 180 m² AN, 2 floors, EFH, pitched roof), which reproduces the registry quantities exactly. Footprint = AN ÷ floors; roof ∝ footprint (flat roof = footprint); façade ∝ √footprint × floors × exposed share (EFH/ZFH 1, DHH 0.75, RH 0.5); windows and floor heating ∝ Wohnfläche. Lump sums (M1, M4, M6) do not scale. User overrides win.
+
+### Measure categories
+
+`kategorie: "energetisch"` (default) or `"modernisierung"` (no energy effect, e.g. Badsanierung). Non-energy measures: no impact, no score/badge, never pre-selected, no energy step in `berechneKumuliert`, costs in `k.modernisierung_*` (not in `eigenanteil`/amortisation). Sidebar shows "Weitere Modernisierung" + "Gesamtbudget" only when such a measure is active.
+
+### Badsanierung (P6 / B1)
+
+`kategorie: "modernisierung"`, opt-in (never pre-selected; kept when the energetic selection is re-derived). Cost = €/m² of the chosen standard (`BAD_STANDARDS`: einfach / mittel / gehoben → `KOSTENANSAETZE.BAD_*`) × `gebaeude.bad_flaeche` (default 8 m²), with a range (`spanne`). Values come from guide/supplier websites (evidenz `annahme`, sources listed). No subsidy. Shown as „Weitere Modernisierung“ + „Gesamtbudget“ in the sidebar; excluded from energy steps, ranking and amortisation.
+
+### Cost registry (`kosten.js`)
+
+Every `investition`/`ohnehin_anteil` comes from `KOSTENANSAETZE` (measures reference it via `kostenansatz`). Each entry carries `region`, `bezugsjahr`, `mwst`, `einheit`, `einheitspreis`/`menge`, `spanne`, `evidenz` (`dokumentiert` | `abgeleitet` | `annahme`) and `quellen`. All current values are `annahme` (no documented source). Regional values go into `KOSTENANSAETZE_REGIONAL.BE`; `kostenAnsatzFuer(id, "BE")` falls back to DE with `fallback: true`. Tests enforce the metadata and that a non-`annahme` entry has sources. Do not add numbers without an evidence level.
 
 ### State model
 
@@ -87,9 +141,9 @@ Derived (useMemo):
 
 | Preset | Year | Heating | IST PE | EEK |
 |--------|------|---------|--------|-----|
-| efhNachkrieg | 1965 | Heizöl | 236 | G |
-| efh70er | 1978 | Erdgas Brennwert | 172 | F |
-| efh2000er | 2002 | Erdgas Brennwert | 118 | D |
+| efhNachkrieg | 1965 | Heizöl | 236 | G (EE 215) |
+| efh70er | 1978 | Erdgas Brennwert | 172 | E (EE 155) |
+| efh2000er | 2002 | Erdgas Brennwert | 118 | C (EE 98) |
 
 Applying a preset resets all state. efh70er has `bauteile_overrides: { fenster: 5 }` (windows already replaced).
 
@@ -101,12 +155,14 @@ Applying a preset resets all state. efh70er has `bauteile_overrides: { fenster: 
 |--|-----|------|
 | Primärenergie | 236 kWh/(m²·a) | 62 kWh/(m²·a) |
 | CO₂ | 63 kg/(m²·a) | 19 kg/(m²·a) |
-| EEK | G | B |
-| Investition | 142.800 € | |
-| BEG-Förderung | 25.950 € (incl. +10 % Klimageschwindigkeitsbonus on M4) | |
-| Eigenanteil | 116.850 € | |
+| Endenergie | 215 kWh/(m²·a) | 41 kWh/(m²·a) |
+| EEK (from Endenergie) | G | A |
+| Heizkosten (× 180 m² AN) | 4.257 €/a | 1.624 €/a |
+| Investition | 139.800 € (M4 at auto variant „monoenergetisch“ = 29.000 €) | |
+| BEG-Förderung | 27.200 € (BEG 2026 default context; M4: 28.000 € cap × 46 %) | |
+| Eigenanteil | 112.600 € | |
 
-Pinned by `data.test.js`. Update both together when changing impact functions, factors, or presets.
+With variant „monovalent“ forced: Investition 142.800 €. Pinned by `data.test.js` (via `berechneSzenario`, the app path) and `tests/e2e/golden-paths.spec.js`. Update all together when changing impact functions, factors, costs, subsidy rules or presets.
 
 ### Primary energy and CO₂ factors
 
@@ -114,7 +170,7 @@ Measure impact tables estimate the end-energy delta. Target Primärenergie and C
 
 - `Primärenergie = Endenergie × ENERGIE_TRAEGER_FAKTOREN[carrier].primaerenergie`
 - `CO₂ = Endenergie × ENERGIE_TRAEGER_FAKTOREN[carrier].co2KgProKwh`
-- Defaults follow GEG Anlage 4 for non-renewable primary energy factors and GEG Anlage 9 for emissions factors.
+- Defaults follow GModG (formerly GEG) Anlage 4 for non-renewable primary energy factors and Anlage 9 for emissions factors — verified 10/2026 against the consolidated text on gesetze-im-internet.de. The GModG government draft foresees 100 g/kWh for grid electricity in a future Anlage 9; currently in force: 560 g/kWh.
 - Heat pumps and direct electric heating use net electricity defaults: PE factor `1.8`, CO₂ `0.560 kg/kWh`.
 - Oil uses PE `1.1`, CO₂ `0.310 kg/kWh`; gas uses PE `1.1`, CO₂ `0.240 kg/kWh`; pellets/wood use PE `0.2`, CO₂ `0.020 kg/kWh`.
 - Fernwärme remains a demonstrator fallback because real energy certificates require network-specific factors.
@@ -138,8 +194,10 @@ Expected outputs: ~1.330 €/year without WP (amortisation ~14 J), ~2.020 €/ye
 
 ### Amortisation model
 
-- **Sidebar/Drawer KPI**: `Eigenanteil ÷ (IST-Heizkosten − ZIEL-Heizkosten)` at static prices. Only shown when `heizkosten > k.heizkosten_gesamt`.
-- **20-Jahr-Bilanz** (Ergebnis section): `ohneEur = heizkosten × 20`, `mitEur = k.eigenanteil + k.heizkosten_gesamt × 20`. Static prices, no escalation.
+One function, `berechneWirtschaftlichkeit`, feeds sidebar, drawer, 20-year chart and print report (incl. user overrides from the editor).
+
+- **Sidebar/Drawer KPI „Amortisation“**: `Eigenanteil ÷ (IST − ZIEL Heiz- + Wartungskosten + PV-Ertrag)` at static prices.
+- **20-Jahr-Chart / print „20-Jahr-Bilanz“**: cumulative costs with price escalation (default IST fossil 2,5 %, ZIEL 2,0 % p. a.). „Break-even“ = actual crossing of both curves, therefore usually earlier than the static amortisation.
 
 ---
 
@@ -154,7 +212,7 @@ git remote set-url origin http://local_proxy@127.0.0.1:${PROXY_PORT}/git/johakun
 git push -u origin <branch>
 ```
 
-**MCP `push_files` as fallback**: For individual files ≤~50 KB. Avoid for large files (index.html ~295 KB, package-lock.json ~106 KB) — use `git push`.
+**MCP `push_files` as fallback**: For individual files ≤~50 KB. Avoid for large files (index.html ~1.7 MB, package-lock.json ~150 KB) — use `git push`.
 
 ---
 
@@ -193,8 +251,9 @@ After every task, verify the following invariants are still satisfied:
 |-----------|-------------|
 | **Golden values** | `npm test` must pass. If PE/EEK/Eigenanteil shift, update `data.test.js` AND this file AND `AGENTS.md` together. |
 | **Offline guarantee** | `npm run build && npm test` must pass including the CDN-check in `verify.mjs`. No `googleapis.com`, `gstatic.com`, `cdnjs.cloudflare.com`, or `unpkg.com` references allowed in `dist/index.html`. |
-| **Print/live consistency** | `ISFPPrintReport` must receive `dynamicPakete` (not `effectivePakete`). If M1→P3 logic in App.jsx changes, update the prop passed to `ISFPPrintReport`. |
-| **Recommendation logic** | `massnahmeIstSchonVorhanden` gates M4 and M6. Any new "already-present" check must update both `data.js` and the `updateGebaeude`/`applyPreset` callers in `App.jsx`. |
+| **Print/live consistency** | `ISFPPrintReport` receives `dynamicPakete` and the same `wirtschaftlichkeit` object as the sidebar. It shows only active measures per package. |
+| **Recommendation logic** | `getDefaultAktiveMassnahmen` is the only default-selection rule (start state, preset, field change, PDF import via `uebernehmeGebaeude`). `massnahmeIstSchonVorhanden` gates M4 and M6. |
+| **Single sources** | Subsidy → `berechneFoerderung`; WP variant → `bestimmeWpVariante`; carrier price/label/maintenance → `faktorKeyFuerHeizung` + `TRAEGER_INFO`; costs → `kosten.js`. Do not re-implement these inline in components. |
 | **PDF confirmation** | PDF extraction must never mutate state without user confirmation (`pendingExtraction` → review UI → `applyPendingExtraction`). Do not shortcut this flow. |
 
 ---
@@ -203,11 +262,17 @@ After every task, verify the following invariants are still satisfied:
 
 | Area | Simplification |
 |------|---------------|
-| Subsidy amounts | Fixed Förderquoten; no income test, no Förderdeckel, no bonus-combination rules |
+| Subsidy amounts | BEG 2026 rules per measure; caps applied per measure instead of per calendar year; no WPB bonus, no Fachplanung/Baubegleitung (see `FOERDERREGELN` comment) |
+| Cost scaling | Geometric quantity model (square footprint); WP, PV and M1 stay lump sums |
+| Cost evidence | All `KOSTENANSAETZE` are `annahme` (undocumented, bundesweit) |
+| EEK basis | Energieausweis scale on Endenergie; iSFP PE colour scale not shown |
+| Prebound effect | IST heating costs come from the (Bedarfs-)Endenergie, which often overstates real consumption of unrenovated houses; users can enter their real bill under „Wirtschaftlichkeit“ |
+| WP sizing | Lump sum (12 kW basis); no heat-load-based cost scaling (no cost-per-kW evidence yet) |
 | Wohnfläche | Heuristic GNF / 1.3 when not from PDF |
 | WP COP | Wärmeverteilung affects WP impact through variant multipliers and flow-temperature malus, but no full hourly COP model |
 | CO₂ values | Target CO₂ is factor-based from Endenergie and carrier; per-measure CO₂ labels are still static hints |
 | Multi-WE | Treats ZFH/DHH/RH identically to EFH |
-| Amortisation | Static energy prices only; no real energy price escalation (typically 2–3 %/year) |
+| Amortisation | Sidebar KPI static; 20-year chart uses escalation |
+| Legal basis | GEG renamed/replaced by GModG on 29.07.2026; Anlagen 4, 9, 10 verified unchanged (10/2026). Possible future change: grid electricity CO₂ 100 g/kWh |
 | PV revenue | Fixed 10 kWp assumed; no shading, orientation, or roof-area checks |
 | PV EV quote | Fixed 35 %/60 % split; real value depends on household consumption profile |
